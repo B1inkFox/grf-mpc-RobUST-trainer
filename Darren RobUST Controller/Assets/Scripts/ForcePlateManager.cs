@@ -32,31 +32,12 @@ public class ForcePlateManager : MonoBehaviour
         Debug.Log("ForcePlateManager initialized successfully.");
         return true;
     }
-
-    private void Update()
-    {
-        // --- SIMULATION PLACEHOLDER ---
-        // Replace this with your actual Vicon data integration logic.
-        // For example, you might call a function here that polls the Vicon system.
-        currentForce = Vector3.zero;
-        currentMoment = Vector3.zero;
-    }
-
-    /// <summary>
-    /// Retrieves the latest force plate data (zero-allocation runtime).
-    /// </summary>
-    /// <returns>A ForcePlateData object with the current force and moment.</returns>
+    
     public ForcePlateData GetForcePlateData()
     {
         return new ForcePlateData(currentForce, currentMoment);
     }
 
-    /// <summary>
-    /// Public method to allow external scripts (like a Vicon data receiver)
-    /// to update the force plate data.
-    /// </summary>
-    /// <param name="force">The new force vector.</param>
-    /// <param name="moment">The new moment vector.</param>
     public void UpdateData(Vector3 force, Vector3 moment)
     {
         currentForce = force;

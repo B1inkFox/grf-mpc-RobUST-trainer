@@ -7,34 +7,32 @@ using UnityEngine;
 /// </summary>
 public class RobotController : MonoBehaviour
 {
-    [Header("System Modules")]
-    [Tooltip("Manages Vive Trackers for human and end-effector positions.")]
+    [Header("Module References")]
+    [Tooltip("The TrackerManager instance that provides tracker data.")]
     public TrackerManager trackerManager;
 
-    [Tooltip("Manages force plate data from the Vicon system.")]
-    public ForcePlateManager forcePlateManager;
-
-    [Tooltip("Handles TCP communication with the LabVIEW server.")]
-    public LabviewTcpCommunicator tcpCommunicator;
-
-    [Tooltip("Performs physics calculations for cable tension planning.")]
+    [Tooltip("The CableTensionPlanner instance for physics calculations.")]
     public CableTensionPlanner tensionPlanner;
 
+    [Tooltip("The ForcePlateManager instance for reading force plate data.")]
+    public ForcePlateManager forcePlateManager;
+
+    [Tooltip("The LabviewTcpCommunicator instance for sending motor commands.")]
+    public LabviewTcpCommunicator tcpCommunicator;
+
+    [Header("Visualization")]
+    [Tooltip("Handles tracker/camera visuals. Keeps RobotController logic-only.")]
+    public RobotVisualizer visualizer;
+
     [Header("Control Settings")]
-    [Tooltip("Flag to enable or disable sending data to LabVIEW.")]
+    [Tooltip("Enable or disable sending commands to LabVIEW.")]
     public bool isLabviewControlEnabled = true;
 
-    [Header("Tracker Visualization")]
-    [Tooltip("Visual representation of the CoM tracker.")]
-    public Transform comTrackerVisual;
 
-    [Tooltip("Visual representation of the end-effector tracker.")]
-    public Transform endEffectorVisual;
-
-    // Transformation matrices calculated at startup to align Vive tracker data
-    // with the Vicon coordinate system.
-    private Matrix4x4 comViveToVicon;
-    private Matrix4x4 endEffectorViveToVicon;
+    // Static frame reference captured at startup to prevent drift
+    private readonly TrackerData robot_frame_tracker = new TrackerData();
+    // The vector representing the direction of gravity in the world frame.
+    private static Vector3 gravity_vec = 9.81f * new Vector3(0, 0, -1);
 
     private void Start()
     {
@@ -44,7 +42,8 @@ public class RobotController : MonoBehaviour
             return;
         }
 
-        // Initialize modules that don't depend on calibration data first
+        // Initialize all modules. Since we are using a pure Vive-based coordinate system,
+        // there is no complex calibration sequence needed at startup.
         if (!trackerManager.Initialize())
         {
             Debug.LogError("Failed to initialize TrackerManager.", this);
@@ -57,8 +56,6 @@ public class RobotController : MonoBehaviour
             enabled = false;
             return;
         }
-
-        // Initialize remaining modules
         if (!forcePlateManager.Initialize())
         {
             Debug.LogError("Failed to initialize ForcePlateManager.", this);
@@ -72,13 +69,21 @@ public class RobotController : MonoBehaviour
             return;
         }
 
+        // Capture static frame reference to prevent drift during operation
+        System.Threading.Thread.Sleep(100); // Brief pause for tracking stability
+        robot_frame_tracker.PoseMatrix = trackerManager.GetFrameTrackerData().PoseMatrix;
+
+        // Initialize visualizer now that frame pose is available
+        var pulleyPositions = tensionPlanner.GetPulleyPositionsInRobotFrame();
+        if (!visualizer.Initialize(robot_frame_tracker.PoseMatrix, pulleyPositions))
+        {
+            Debug.LogError("Failed to initialize RobotVisualizer.", this);
+            enabled = false;
+            return;
+        }
+
         Debug.Log("All robot modules initialized successfully.");
-
-        // This method will poll a static frame from Vicon and compute transformations to vicon origin. 
-        // subsequent robot physics calculations are done in vicon origin. This is for easier frame pulley position calculation and
-        // force plate cop localization.
-        CalibrateTrackers();
-
+                
         // Start the TCP connection if enabled
         if (isLabviewControlEnabled)
         {
@@ -88,40 +93,38 @@ public class RobotController : MonoBehaviour
 
     private void Update()
     {
-        // 1. Get the latest raw tracker data (in the RIGHT-HANDED OpenVR/Vive coordinate system).
-        TrackerData comTrackerData = trackerManager.GetCoMTrackerData();
-        TrackerData endEffectorTrackerData = trackerManager.GetEndEffectorTrackerData();
-        
-        // 2. Transform tracker data from Vive space to the Vicon coordinate space.
-        Matrix4x4 comPoseVicon = comViveToVicon * comTrackerData.PoseMatrix;
-        Matrix4x4 endEffectorPoseVicon = endEffectorViveToVicon * endEffectorTrackerData.PoseMatrix;
+        // 1. Get the latest raw tracker data (in the arbitrary, RIGHT-HANDED OpenVR/Vive coordinate system).
+        TrackerData rawComData = trackerManager.GetCoMTrackerData();
+        TrackerData rawEndEffectorData = trackerManager.GetEndEffectorTrackerData();
 
-        // 3. Update the visual representation in Unity's left-handed system.
-        Vector3 comPosition = comPoseVicon.GetColumn(3);
-        Quaternion comRotation = comPoseVicon.rotation;
-        comTrackerVisual.SetPositionAndRotation(
-            new Vector3(comPosition.x, comPosition.y, -comPosition.z),
-            new Quaternion(-comRotation.x, -comRotation.y, comRotation.z, comRotation.w)
+        // 2. Update visuals (delegated; safe because startup validation guarantees references)
+        visualizer.UpdateTrackerVisuals(rawComData, rawEndEffectorData, robot_frame_tracker);
+
+        // Call GetEEPositionRelativeToFrame and print its position
+        Vector3 eeRelativePos = GetEEPositionRelativeToFrame();
+        Debug.Log($"End Effector Position Relative to Frame: ({eeRelativePos.x:F6}, {eeRelativePos.y:F6}, {eeRelativePos.z:F6})");
+
+        // Test call to CableTensionPlanner.CalculateTensions
+        float[] tensions = tensionPlanner.CalculateTensions(
+            rawEndEffectorData.PoseMatrix,
+            Vector3.zero, // desiredForce (zero for test)
+            Vector3.zero, // desiredTorque (zero for test)
+            robot_frame_tracker.PoseMatrix
         );
+    }
 
-        Vector3 endEffectorPosition = endEffectorPoseVicon.GetColumn(3);
-        Quaternion endEffectorRotation = endEffectorPoseVicon.rotation;
-        endEffectorVisual.SetPositionAndRotation(
-            new Vector3(endEffectorPosition.x, endEffectorPosition.y, -endEffectorPosition.z),
-            new Quaternion(-endEffectorRotation.x, -endEffectorRotation.y, endEffectorRotation.z, endEffectorRotation.w)
-        );
-
-        // 4. Determine the desired force and torque to be applied by the robot.
-        (Vector3 desiredForce, Vector3 desiredTorque) = CalculateDesiredWrench(comPoseVicon, endEffectorPoseVicon);
-
-        // 5. Calculate desired cable tensions to achieve the wrench.
-        float[] desiredTensions = tensionPlanner.CalculateTensions(endEffectorPoseVicon, desiredForce, desiredTorque);
-
-        // 6. Send the calculated tensions to LabVIEW.
-        if (isLabviewControlEnabled && tcpCommunicator.IsConnected)
-        {
-            tcpCommunicator.UpdateTensionSetpoint(desiredTensions);
-        }
+    /// <summary>
+    /// Helper method to get chest tracker's position relative to the static frame reference.
+    /// Useful for manually recording pulley positions during calibration.
+    /// </summary>
+    /// <returns>Position relative to frame tracker, or Vector3.zero if not found</returns>
+    public Vector3 GetEEPositionRelativeToFrame()
+    {
+        TrackerData ee_data = trackerManager.GetEndEffectorTrackerData();
+        Vector3 tracker_pos = ee_data.PoseMatrix.GetColumn(3);
+        Matrix4x4 framePose_inverse = robot_frame_tracker.PoseMatrix.inverse;
+        Vector3 relativePos = framePose_inverse.MultiplyPoint3x4(tracker_pos);
+        return relativePos;
     }
 
     /// <summary>
@@ -137,90 +140,21 @@ public class RobotController : MonoBehaviour
         return (Vector3.zero, Vector3.zero);
     }
 
-    /// <summary>
-    /// Runs the entire calibration sequence at startup.
-    /// </summary>
-    private void CalibrateTrackers()
-    {
-        Debug.Log("Starting tracker calibration...");
-
-        // --- In a real implementation, you would wait for a static capture here ---
-
-        // 1. Get the poses of the trackers from the Vicon system.
-        // --- FUTURE IMPLEMENTATION ---
-        // a. Call Vicon SDK to get the 3 marker positions for each tracker.
-        // b. Construct a 4x4 pose matrix from these 3 points.
-        Debug.Log("Getting Vicon poses for trackers (using identity placeholders).");
-        Matrix4x4 comPoseInVicon = Matrix4x4.identity;
-        Matrix4x4 endEffectorPoseInVicon = Matrix4x4.identity;
-
-        // 2. Get the poses of the trackers from the Vive system.
-        Matrix4x4 comPoseInVive = trackerManager.GetCoMTrackerData().PoseMatrix;
-        Matrix4x4 endEffectorPoseInVive = trackerManager.GetEndEffectorTrackerData().PoseMatrix;
-
-        // 3. Calculate and store the transformation matrices.
-        comViveToVicon = comPoseInVicon * comPoseInVive.inverse;
-        endEffectorViveToVicon = endEffectorPoseInVicon * endEffectorPoseInVive.inverse;
-
-        Debug.Log("Vive-to-Vicon transforms calculated.");
-
-        // 4. Get the pulley positions from the Vicon system (placeholder).
-        Vector3[] pulleyPositions = GetViconPulleyPositions();
-
-        // 5. Configure the CableTensionPlanner with the calibrated pulley positions.
-        tensionPlanner.SetPulleyPositions(pulleyPositions);
-
-        Debug.Log("Tracker calibration complete.");
-    }
-
-    /// <summary>
-    /// Placeholder for getting the pulley positions from the Vicon system.
-    /// </summary>
-    private Vector3[] GetViconPulleyPositions()
-    {
-        // --- FUTURE IMPLEMENTATION ---
-        // 1. Call Vicon SDK to get the world positions of the 4 pulley markers.
-        // 2. Return them in the correct order.
-
-        Debug.Log("Getting Vicon pulley positions (using hardcoded placeholders).");
-        var positions = new Vector3[4];
-        // These hardcoded values are now only for placeholder purposes.
-        // The real values will come from your Vicon system.
-        positions[0] = new Vector3(0.4826f, 0, 0.4826f);
-        positions[1] = new Vector3(-0.4826f, 0, 0.4826f);
-        positions[2] = new Vector3(-0.4826f, 0, -0.4826f);
-        positions[3] = new Vector3(0.4826f, 0, -0.4826f);
-        return positions;
-    }
-
     // Validates that all required module references are assigned in the Inspector.
     // returns True if all modules are assigned, false otherwise.
     private bool ValidateModules()
     {
-        if (trackerManager == null)
-        {
-            Debug.LogError("TrackerManager is not assigned in the RobotController inspector.", this);
-            return false;
-        }
-        if (forcePlateManager == null)
-        {
-            Debug.LogError("ForcePlateManager is not assigned in the RobotController inspector.", this);
-            return false;
-        }
-        if (tcpCommunicator == null)
-        {
-            Debug.LogError("LabviewTcpCommunicator is not assigned in the RobotController inspector.", this);
-            return false;
-        }
-        if (tensionPlanner == null)
-        {
-            Debug.LogError("CableTensionPlanner is not assigned in the RobotController inspector.", this);
-            return false;
-        }
-        return true;
+        bool allValid = true;
+        if (trackerManager == null) { Debug.LogError("Module not assigned in Inspector: trackerManager", this); allValid = false; }
+        if (tensionPlanner == null) { Debug.LogError("Module not assigned in Inspector: tensionPlanner", this); allValid = false; }
+        if (forcePlateManager == null) { Debug.LogError("Module not assigned in Inspector: forcePlateManager", this); allValid = false; }
+        if (tcpCommunicator == null) { Debug.LogError("Module not assigned in Inspector: tcpCommunicator", this); allValid = false; }
+        if (visualizer == null) { Debug.LogError("Visualizer not assigned in Inspector: visualizer", this); allValid = false; }
+        
+        return allValid;
     }
 
-    void OnApplicationQuit()
+    private void OnDestroy()
     {
         // Clean shutdown of threaded components.
         // TrackerManager handles its own shutdown via its OnDestroy method.
