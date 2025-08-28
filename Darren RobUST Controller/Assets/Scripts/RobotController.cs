@@ -74,7 +74,7 @@ public class RobotController : MonoBehaviour
         robot_frame_tracker.PoseMatrix = trackerManager.GetFrameTrackerData().PoseMatrix;
 
         // Initialize visualizer now that frame pose is available
-        var pulleyPositions = tensionPlanner.GetPulleyPositionsInRobotFrame();
+        Vector3[] pulleyPositions = tensionPlanner.GetPulleyPositionsInRobotFrame();
         if (!visualizer.Initialize(robot_frame_tracker.PoseMatrix, pulleyPositions))
         {
             Debug.LogError("Failed to initialize RobotVisualizer.", this);
@@ -102,7 +102,7 @@ public class RobotController : MonoBehaviour
 
         // Call GetEEPositionRelativeToFrame and print its position
         Vector3 eeRelativePos = GetEEPositionRelativeToFrame();
-        Debug.Log($"End Effector Position Relative to Frame: ({eeRelativePos.x:F6}, {eeRelativePos.y:F6}, {eeRelativePos.z:F6})");
+        //Debug.Log($"End Effector Position Relative to Frame: ({eeRelativePos.x:F6}, {eeRelativePos.y:F6}, {eeRelativePos.z:F6})");
 
         // Test call to CableTensionPlanner.CalculateTensions
         float[] tensions = tensionPlanner.CalculateTensions(
