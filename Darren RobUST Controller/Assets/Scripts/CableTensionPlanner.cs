@@ -1,5 +1,5 @@
 using UnityEngine;
-using MathNet.Numerics.LinearAlgebra;
+using System;
 
 /// <summary>
 /// Performs the physics calculations to determine the required cable tensions
@@ -7,15 +7,8 @@ using MathNet.Numerics.LinearAlgebra;
 /// </summary>
 public class CableTensionPlanner : MonoBehaviour
 {
-    [Tooltip("Number of rows in the structure matrix.")]
-    public int matrixRows = 6;
-
     [Tooltip("Number of columns (cables) in the structure matrix.")]
     public int matrixCols = 4;
-
-    [Header("Motor Mapping")]
-    [Tooltip("The motor number corresponding to each column of the structure matrix. Size must match 'matrixCols'.")]
-    public int[] motorNumbers;
 
     [Header("Chest Anterior-Posterior Distance")]
     [Tooltip("Measured Thickness of the chest in the anterior-posterior direction.")]
@@ -32,10 +25,28 @@ public class CableTensionPlanner : MonoBehaviour
 
 
     // Pre-computed constants
-    private Matrix<float> sMatrix;
-    private float[] tensions;
+    private double[] tensions;
     private Vector3[] localAttachmentPoints; // r_i vectors, local to the end-effector
     private Vector3[] framePulleyPositions;  // Local positions of the pulleys relative to the frame tracker
+
+    // Pre-allocated QP matrices (allocated once, reused every calculation)
+    private double[,] quadratic;
+    private double[] linear;
+    private double[,] sMatrix; // 6x4 structure matrix for force/torque constraints
+    private double[] tensionLower; // Box constraint lower bounds
+    private double[] tensionUpper; // Box constraint upper bounds
+    private double[] lowerWrenchBounds;
+    private double[] upperWrenchBounds;
+    private double[] scale;
+    
+    private double forceEpsilon = 0.01;
+    private double torqueEpsilon = 1000;
+    private double minTension = 15.0;
+    private double maxTension = 200;
+
+    // Add new fields for QP state and warm start solution
+    private alglib.minqpstate qpState;
+    private double[] previousSolution;
 
     /// <summary>
     /// Initializes the tension planner by pre-calculating constant geometric properties.
@@ -45,12 +56,6 @@ public class CableTensionPlanner : MonoBehaviour
     public bool Initialize()
     {
         // Validate configuration
-        if (motorNumbers == null || motorNumbers.Length != matrixCols)
-        {
-            Debug.LogError($"Motor numbers array must have {matrixCols} elements to match matrix columns.", this);
-            return false;
-        }
-
         if (chest_AP_distance <= 0 || chest_ML_distance <= 0)
         {
             Debug.LogError("Chest dimensions must be positive values.", this);
@@ -58,17 +63,54 @@ public class CableTensionPlanner : MonoBehaviour
         }
 
         // Pre-allocate all data structures
-        tensions = new float[matrixCols];
-        sMatrix = Matrix<float>.Build.Dense(matrixRows, matrixCols);
+        tensions = new double[matrixCols];
         localAttachmentPoints = new Vector3[matrixCols];
         framePulleyPositions = new Vector3[matrixCols];
 
+        // Pre-allocate QP structures
+        quadratic = new double[matrixCols, matrixCols];
+        linear = new double[matrixCols];
+        sMatrix = new double[6, matrixCols]; // 6xnumCables structure matrix
+        tensionLower = new double[matrixCols]; // box constraints arrays
+        tensionUpper = new double[matrixCols];
+        lowerWrenchBounds = new double[6]; // linear constraints arrays
+        upperWrenchBounds = new double[6];
+
+        // scale array (required for Dense IPM)
+        scale = new double[matrixCols];
+
+        // Initialize quadratic matrix: P = 2*Identity (constant, never changes)
+        for (int i = 0; i < matrixCols; i++)
+            quadratic[i, i] = 2.0;
+            
+        // Initialize tension bounds (constant, never changes)
+        for (int i = 0; i < matrixCols; i++)
+        {
+            tensionLower[i] = minTension;  // Minimum tension
+            tensionUpper[i] = maxTension; // Maximum tension
+        }
+        // Initialize scale array (required for Dense IPM - use typical tension magnitude)
+        for (int i = 0; i < matrixCols; i++)
+            scale[i] = 50.0; // Mid-range tension value for scaling
+
+        // Initialize previousSolution with a reasonable default
+        previousSolution = new double[matrixCols];
+        for (int i = 0; i < matrixCols; i++)
+            previousSolution[i] = 50.0; // default tension value
+        
+        // initialize qp solver
+        alglib.minqpcreate(matrixCols, out qpState); // Initialize QP state once and reuse it for subsequent solves
+        alglib.minqpsetalgodenseipm(qpState, 1e-6);  // Stopping tolerance: 1e-6
+        alglib.minqpsetquadraticterm(qpState, quadratic, true);
+        alglib.minqpsetlinearterm(qpState, linear);
+        alglib.minqpsetbc(qpState, tensionLower, tensionUpper);
+
         // Pre-compute fixed pulley positions in the RIGHT-HANDED coordinate system,
-        // assuming the frame tracker is the origin.
-        framePulleyPositions[0] = new Vector3(0.4826f, 0.9652f, 0.5f);   // Front-Right (Motor 1)
-        framePulleyPositions[1] = new Vector3(-0.4826f, 0.0f, 0.5f);  // Front-Left (Motor 2)
-        framePulleyPositions[2] = new Vector3(-0.4826f, 0.0f, 0.5f); // Back-Left (Motor 3)
-        framePulleyPositions[3] = new Vector3(0.4826f, 0.9652f, 0.5f);  // Back-Right (Motor 4)
+        // assuming the frame tracker is the origin. 
+        framePulleyPositions[0] = new Vector3(-1.0f, 2.0f, 2.0f);   // Front-Right (Motor index 0)
+        framePulleyPositions[1] = new Vector3(-1.0f, 0.0f, 2.0f);  // Front-Left (Motor index 1)
+        framePulleyPositions[2] = new Vector3(1.0f, 0.0f, 2.0f); // Back-Left (Motor index 2)
+        framePulleyPositions[3] = new Vector3(1.0f, 2.0f, 2.0f);  // Back-Right (Motor index 3)
 
         // Pre-compute local attachment points based on belt geometry in the RIGHT-HANDED coordinate system
         float halfAP = chest_AP_distance / 2.0f;
@@ -76,12 +118,10 @@ public class CableTensionPlanner : MonoBehaviour
         float ap_factor = (beltSize == BeltSize.Small) ? 0.7f : 0.85f;
         float ml_factor = (beltSize == BeltSize.Small) ? 0.8f : 0.95f;
 
-        // Note: Assuming Z is forward, X is right, Y is up (standard right-handed system)
-        localAttachmentPoints[0] = new Vector3(halfML * ml_factor, 0, halfAP * ap_factor);  // Front-Right
-        localAttachmentPoints[1] = new Vector3(-halfML * ml_factor, 0, halfAP * ap_factor); // Front-Left
-        localAttachmentPoints[2] = new Vector3(-halfML * ml_factor, 0, -halfAP * ap_factor);// Back-Left
-        localAttachmentPoints[3] = new Vector3(halfML * ml_factor, 0, -halfAP * ap_factor); // Back-Right
-
+        localAttachmentPoints[0] = new Vector3(-halfML * ml_factor, -halfAP * ap_factor, 0);  // Front-Right (Motor index 0)
+        localAttachmentPoints[1] = new Vector3(halfML * ml_factor, -halfAP * ap_factor, 0); // Front-Left (Motor index 1)
+        localAttachmentPoints[2] = new Vector3(halfML * ml_factor, 0, 0);// Back-Left (Motor index 2)
+        localAttachmentPoints[3] = new Vector3(-halfML * ml_factor, 0, 0); // Back-Right (Motor index 3)
 
         Debug.Log($"CableTensionPlanner initialized for {matrixCols} cables with {beltSize} belt size.");
         return true;
@@ -95,15 +135,9 @@ public class CableTensionPlanner : MonoBehaviour
     /// <param name="desiredForce">The desired force to be applied by the cables.</param>
     /// <param name="desiredTorque">The desired torque to be applied by the cables.</param>
     /// <param name="robotFramePose">The transformation matrix of the frame-mounted vive tracker</param>
-    public float[] CalculateTensions(Matrix4x4 endEffectorPose, Vector3 desiredForce, Vector3 desiredTorque, Matrix4x4 robotFramePose)
+    public double[] CalculateTensions(Matrix4x4 endEffectorPose, Vector3 desiredForce, Vector3 desiredTorque, Matrix4x4 robotFramePose)
     {
-        // --- Build the Structure Matrix (S) ---
-        // The S matrix maps the cable tensions to the wrench (force and torque) applied to the end-effector.
-        // Each column 'i' of S corresponds to a cable and is composed of:
-        // - The unit vector u_i (direction of the cable)
-        // - The cross product of r_i and u_i (torque generated by the cable)
-        // where r_i is the vector from the end-effector's origin to the cable's attachment point.
-
+        // Build Structure Matrix 
         for (int i = 0; i < matrixCols; i++)
         {
             // 1. compute robot frame inverse HTM
@@ -121,32 +155,67 @@ public class CableTensionPlanner : MonoBehaviour
             Vector3 u_i = cableVector.normalized;
 
             // 5. Calculate the torque component for this cable (r_i x u_i).
-            Vector3 r_i_eeFrame = localAttachmentPoints[i] - new Vector3(0.0f, 0.0f, chest_AP_distance / 2.0f);
+            Vector3 r_i_eeFrame = localAttachmentPoints[i] - new Vector3(0.0f, -chest_AP_distance / 2.0f, 0.0f);
             Vector3 r_i_robotFrame = EE_to_RobotFrame.MultiplyPoint3x4(r_i_eeFrame);
             Vector3 torqueComponent = Vector3.Cross(r_i_robotFrame, u_i);
 
-            // 6. Populate the i-th column of the structure matrix S.
-            // The top three rows are the force components (the unit vector u_i).
+            // 6. Fill directly into sMatrix
             sMatrix[0, i] = u_i.x;
             sMatrix[1, i] = u_i.y;
             sMatrix[2, i] = u_i.z;
-            // The bottom three rows are the torque components.
             sMatrix[3, i] = torqueComponent.x;
             sMatrix[4, i] = torqueComponent.y;
             sMatrix[5, i] = torqueComponent.z;
         }
 
-        // --- Solve for Tensions (Future Implementation) ---
-        // At this point, the matrix S is fully constructed for the current robot pose.
-        // The next step is to set up and solve a Quadratic Programming (QP) problem
-        // to find the optimal tensions 't' that satisfy S*t = w, where w is the desired wrench.
-        // This typically involves minimizing ||S*t - w||^2 subject to t >= 0.
+        // --- 2. Update Constraint Values (2-sided with epsilon tolerance) ---
+        lowerWrenchBounds[0] = desiredForce.x - forceEpsilon;
+        upperWrenchBounds[0] = desiredForce.x + forceEpsilon;
+        lowerWrenchBounds[1] = desiredForce.y - forceEpsilon;
+        upperWrenchBounds[1] = desiredForce.y + forceEpsilon;
+        lowerWrenchBounds[2] = desiredForce.z - forceEpsilon;
+        upperWrenchBounds[2] = desiredForce.z + forceEpsilon;
+        lowerWrenchBounds[3] = desiredTorque.x - torqueEpsilon;
+        upperWrenchBounds[3] = desiredTorque.x + torqueEpsilon;
+        lowerWrenchBounds[4] = desiredTorque.y - torqueEpsilon;
+        upperWrenchBounds[4] = desiredTorque.y + torqueEpsilon;
+        lowerWrenchBounds[5] = desiredTorque.z - torqueEpsilon;
+        upperWrenchBounds[5] = desiredTorque.z + torqueEpsilon;
 
-        // For now, we will continue to return a zeroed array.
-        for (int i = 0; i < tensions.Length; i++)
+        // --- 3. Solve QP Problem using Dense IPM ---
+        alglib.minqpsetlc2dense(qpState, sMatrix, lowerWrenchBounds, upperWrenchBounds, 6);
+        alglib.minqpsetstartingpoint(qpState, previousSolution); // warm start
+        
+        // Optimize
+        alglib.minqpoptimize(qpState);
+        alglib.minqpresults(qpState, out tensions, out var report);
+
+        // Update the previous solution for the next call
+        Array.Copy(tensions, previousSolution, matrixCols);
+
+        // --- 4. Check Results ---
+        if (report.terminationtype < 0)
         {
-            tensions[i] = 0f;
+            Debug.LogWarning($"QP solver failed: {report.terminationtype}");
+            return new double[matrixCols];
         }
+
+        Debug.Log("Computed tensions: [" + string.Join(", ", System.Array.ConvertAll(tensions, t => t.ToString("F3"))) + "]");
+
+        // // Calculate the actual wrench (forces and torques) from the computed tensions
+        // double[] actualWrench = new double[6];
+        // for (int i = 0; i < 6; i++)
+        // {
+        //     actualWrench[i] = 0;
+        //     for (int j = 0; j < matrixCols; j++)
+        //     {
+        //         actualWrench[i] += sMatrix[i, j] * tensions[j];
+        //     }
+        // }
+        // // Print the actual wrench
+        // Debug.Log("Actual wrench [Fx, Fy, Fz, Tx, Ty, Tz]: [" + 
+        //           string.Join(", ", System.Array.ConvertAll(actualWrench, w => w.ToString("F3"))) + "]");
+                  
         return tensions;
     }
 

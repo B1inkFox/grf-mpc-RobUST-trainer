@@ -62,7 +62,7 @@ public class RobotController : MonoBehaviour
             enabled = false;
             return;
         }
-        if (!tcpCommunicator.Initialize(tensionPlanner.motorNumbers))
+        if (!tcpCommunicator.Initialize(tensionPlanner.matrixCols))
         {
             Debug.LogError("Failed to initialize LabviewTcpCommunicator.", this);
             enabled = false;
@@ -101,16 +101,24 @@ public class RobotController : MonoBehaviour
         visualizer.UpdateTrackerVisuals(rawComData, rawEndEffectorData, robot_frame_tracker);
 
         // Call GetEEPositionRelativeToFrame and print its position
-        Vector3 eeRelativePos = GetEEPositionRelativeToFrame();
-        //Debug.Log($"End Effector Position Relative to Frame: ({eeRelativePos.x:F6}, {eeRelativePos.y:F6}, {eeRelativePos.z:F6})");
+        Matrix4x4 eePose_robotFrame = GetEEPoseRelativeToFrame();
+        // Debug.Log($"End Effector Pose Relative to Frame:\n" +
+        //      $"[{eePose_robotFrame.m00:F4}, {eePose_robotFrame.m01:F4}, {eePose_robotFrame.m02:F4}, {eePose_robotFrame.m03:F4}]\n" +
+        //      $"[{eePose_robotFrame.m10:F4}, {eePose_robotFrame.m11:F4}, {eePose_robotFrame.m12:F4}, {eePose_robotFrame.m13:F4}]\n" +
+        //      $"[{eePose_robotFrame.m20:F4}, {eePose_robotFrame.m21:F4}, {eePose_robotFrame.m22:F4}, {eePose_robotFrame.m23:F4}]\n" +
+        //      $"[{eePose_robotFrame.m30:F4}, {eePose_robotFrame.m31:F4}, {eePose_robotFrame.m32:F4}, {eePose_robotFrame.m33:F4}]");
 
         // Test call to CableTensionPlanner.CalculateTensions
-        float[] tensions = tensionPlanner.CalculateTensions(
+        double[] tensions = tensionPlanner.CalculateTensions(
             rawEndEffectorData.PoseMatrix,
-            Vector3.zero, // desiredForce (zero for test)
+            new Vector3(0, 0, 100), // desiredForce (test)
             Vector3.zero, // desiredTorque (zero for test)
             robot_frame_tracker.PoseMatrix
         );
+        
+
+        // Send the calculated tensions to LabVIEW
+        tcpCommunicator.UpdateTensionSetpoint(tensions);
     }
 
     /// <summary>
@@ -118,13 +126,13 @@ public class RobotController : MonoBehaviour
     /// Useful for manually recording pulley positions during calibration.
     /// </summary>
     /// <returns>Position relative to frame tracker, or Vector3.zero if not found</returns>
-    public Vector3 GetEEPositionRelativeToFrame()
+    public Matrix4x4 GetEEPoseRelativeToFrame()
     {
         TrackerData ee_data = trackerManager.GetEndEffectorTrackerData();
-        Vector3 tracker_pos = ee_data.PoseMatrix.GetColumn(3);
+        Matrix4x4 eePose = ee_data.PoseMatrix;
         Matrix4x4 framePose_inverse = robot_frame_tracker.PoseMatrix.inverse;
-        Vector3 relativePos = framePose_inverse.MultiplyPoint3x4(tracker_pos);
-        return relativePos;
+        Matrix4x4 relativePose = framePose_inverse * eePose;
+        return relativePose;
     }
 
     /// <summary>

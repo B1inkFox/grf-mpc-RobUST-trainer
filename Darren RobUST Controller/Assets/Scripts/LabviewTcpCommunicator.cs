@@ -13,6 +13,10 @@ public class LabviewTcpCommunicator : MonoBehaviour
     public string serverAddress = "127.0.0.1";
     public int serverPort = 8052;
 
+    [Header("Motor Mapping")]
+    [Tooltip("The motor number corresponding to each cable tension. Order must match CableTensionPlanner output.")]
+    public int[] motorNumbers = new int[] { -1, -1, -1, -1 }; // Default configuration
+
     // Network components
     private TcpClient tcpClient;
     private NetworkStream networkStream;
@@ -23,45 +27,39 @@ public class LabviewTcpCommunicator : MonoBehaviour
     private readonly object dataLock = new object();
     
     // Current data to send - pre-allocated during initialization
-    private int[] motorNumbers;
-    private float[] tensions;
+    private double[] tensions;
 
     public bool IsConnected { get; private set; } = false;
 
     // Cache for send thread to avoid allocations (only tensions need copying)
-    private float[] sendTensions;
+    private double[] sendTensions;
 
     /// <summary>
     /// Initializes the TCP communicator with the cable configuration.
     /// Called by RobotController in the correct dependency order.
     /// </summary>
-    /// <param name="motorConfig">Array of motor numbers from the tension planner</param>
+    /// <param name="numCables">Number of cables from the tension planner</param>
     /// <returns>True if initialization succeeded, false otherwise</returns>
-    public bool Initialize(int[] motorConfig)
+    public bool Initialize(int numCables)
     {
-        if (motorConfig == null || motorConfig.Length == 0)
+        if (motorNumbers == null || motorNumbers.Length != numCables)
         {
-            Debug.LogError("LabviewTcpCommunicator: Invalid motor configuration provided.", this);
+            Debug.LogError($"LabviewTcpCommunicator: Motor numbers array must have {numCables} elements to match cable count.", this);
             return false;
         }
 
-        // Pre-allocate all arrays based on fixed configuration
-        int motorCount = motorConfig.Length;
-        motorNumbers = new int[motorCount];
-        tensions = new float[motorCount];
-        sendTensions = new float[motorCount];
+        // Pre-allocate arrays based on cable count
+        tensions = new double[numCables];
+        sendTensions = new double[numCables];
         
-        // Copy the fixed motor configuration once
-        Array.Copy(motorConfig, motorNumbers, motorCount);
-        
-        Debug.Log($"TCP Communicator initialized for {motorCount} motors: [{string.Join(", ", motorNumbers)}]");
+        Debug.Log($"TCP Communicator initialized for {numCables} cables with motors: [{string.Join(", ", motorNumbers)}]");
         return true;
     }
 
     /// <summary>
     /// Updates only the tension values (zero-allocation, zero-check real-time performance).
     /// </summary>
-    public void UpdateTensionSetpoint(float[] newTensions)
+    public void UpdateTensionSetpoint(double[] newTensions)
     {
         // No checks - arrays are guaranteed to be the right size at startup
         lock (dataLock)
@@ -147,7 +145,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
     /// <summary>
     /// Formats the tension data into the LabVIEW protocol.
     /// </summary>
-    private string FormatPacket(int[] motors, float[] tensions)
+    private string FormatPacket(int[] motors, double[] tensions)
     {
         var sb = new StringBuilder();
         sb.Append($"K,{motors.Length}");
