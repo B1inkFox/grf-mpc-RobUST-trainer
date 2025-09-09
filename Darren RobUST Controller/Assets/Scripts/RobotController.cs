@@ -111,12 +111,11 @@ public class RobotController : MonoBehaviour
         // Test call to CableTensionPlanner.CalculateTensions
         double[] tensions = tensionPlanner.CalculateTensions(
             rawEndEffectorData.PoseMatrix,
-            new Vector3(0, 0, 100), // desiredForce (test)
+            new Vector3(0, 0, 60), // desiredForce (test)
             Vector3.zero, // desiredTorque (zero for test)
             robot_frame_tracker.PoseMatrix
         );
         
-
         // Send the calculated tensions to LabVIEW
         tcpCommunicator.UpdateTensionSetpoint(tensions);
     }

@@ -41,7 +41,7 @@ public class CableTensionPlanner : MonoBehaviour
     
     private double forceEpsilon = 0.01;
     private double torqueEpsilon = 1000;
-    private double minTension = 15.0;
+    private double minTension = 10.0;
     private double maxTension = 200;
 
     // Add new fields for QP state and warm start solution
@@ -105,12 +105,15 @@ public class CableTensionPlanner : MonoBehaviour
         alglib.minqpsetlinearterm(qpState, linear);
         alglib.minqpsetbc(qpState, tensionLower, tensionUpper);
 
-        // Pre-compute fixed pulley positions in the RIGHT-HANDED coordinate system,
-        // assuming the frame tracker is the origin. 
-        framePulleyPositions[0] = new Vector3(-1.0f, 2.0f, 2.0f);   // Front-Right (Motor index 0)
-        framePulleyPositions[1] = new Vector3(-1.0f, 0.0f, 2.0f);  // Front-Left (Motor index 1)
-        framePulleyPositions[2] = new Vector3(1.0f, 0.0f, 2.0f); // Back-Left (Motor index 2)
-        framePulleyPositions[3] = new Vector3(1.0f, 2.0f, 2.0f);  // Back-Right (Motor index 3)
+        // Pre-compute fixed pulley positions in the RIGHT-HANDED coordinate system, relative to robot frame tracker 
+        framePulleyPositions[0] = new Vector3(-.5f, 1.0f, 1.0f);   // Front-Right Top (Motor index 0)
+        framePulleyPositions[1] = new Vector3(-.5f, 0.0f, 1.0f);  // Front-Left Top (Motor index 1)
+        framePulleyPositions[2] = new Vector3(.5f, 0.0f, 1.0f); // Back-Left Top (Motor index 2)
+        framePulleyPositions[3] = new Vector3(.5f, 1.0f, 1.0f);  // Back-Right Top (Motor index 3)
+        framePulleyPositions[4] = new Vector3(-.5f, 1.0f, -1.0f);   // Front-Right Bottom (Motor index 4)
+        framePulleyPositions[5] = new Vector3(-.5f, 0.0f, -1.0f);  // Front-Left Bottom (Motor index 5)
+        framePulleyPositions[6] = new Vector3(.5f, 0.0f, -1.0f); // Back-Left Bottom (Motor index 6)
+        framePulleyPositions[7] = new Vector3(.5f, 1.0f, -1.0f);  // Back-Right Bottom (Motor index 7)
 
         // Pre-compute local attachment points based on belt geometry in the RIGHT-HANDED coordinate system
         float halfAP = chest_AP_distance / 2.0f;
@@ -122,6 +125,11 @@ public class CableTensionPlanner : MonoBehaviour
         localAttachmentPoints[1] = new Vector3(halfML * ml_factor, -halfAP * ap_factor, 0); // Front-Left (Motor index 1)
         localAttachmentPoints[2] = new Vector3(halfML * ml_factor, 0, 0);// Back-Left (Motor index 2)
         localAttachmentPoints[3] = new Vector3(-halfML * ml_factor, 0, 0); // Back-Right (Motor index 3)
+        // repeat for bottom cables
+        localAttachmentPoints[4] = new Vector3(-halfML * ml_factor, -halfAP * ap_factor, 0);  // Front-Right (Motor index 4)
+        localAttachmentPoints[5] = new Vector3(halfML * ml_factor, -halfAP * ap_factor, 0); // Front-Left (Motor index 5)
+        localAttachmentPoints[6] = new Vector3(halfML * ml_factor, 0, 0);// Back-Left (Motor index 6)
+        localAttachmentPoints[7] = new Vector3(-halfML * ml_factor, 0, 0); // Back-Right (Motor index 7)
 
         Debug.Log($"CableTensionPlanner initialized for {matrixCols} cables with {beltSize} belt size.");
         return true;
@@ -226,7 +234,7 @@ public class CableTensionPlanner : MonoBehaviour
     public Vector3[] GetPulleyPositionsInRobotFrame()
     {
         var copy = new Vector3[framePulleyPositions.Length];
-        for (int i = 0; i < framePulleyPositions.Length; i++) copy[i] = framePulleyPositions[i];
+        Array.Copy(framePulleyPositions, copy, framePulleyPositions.Length);
         return copy;
     }
 }

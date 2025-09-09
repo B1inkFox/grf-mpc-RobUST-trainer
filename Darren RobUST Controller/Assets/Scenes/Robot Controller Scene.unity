@@ -313,7 +313,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   serverAddress: 127.0.0.1
   serverPort: 8052
-  motorNumbers: 01000000020000000300000004000000
+  motorNumbers: 0100000002000000030000000400000005000000060000000700000008000000
 --- !u!114 &748268984
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -388,7 +388,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 20cf98459385014f1bcb5f57e59683ed, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  matrixCols: 4
+  matrixCols: 8
   chest_AP_distance: 0.15
   chest_ML_distance: 0.3
   beltSize: 0
@@ -408,7 +408,7 @@ MonoBehaviour:
   endEffectorVisual: {fileID: 292712651}
   frameTrackerVisual: {fileID: 717259972}
   visualizationCamera: {fileID: 1668779289}
-  cam_pos_robotFrame: {x: 10, y: 2, z: 5}
+  cam_pos_robotFrame: {x: 2, y: 10, z: 5}
 --- !u!1001 &1586278569
 PrefabInstance:
   m_ObjectHideFlags: 0

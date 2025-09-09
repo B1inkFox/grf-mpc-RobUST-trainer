@@ -23,6 +23,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
     
     // Threading
     private Thread sendThread;
+    private double sendFrequency_Hz = 1000.0; // 1kHz
     private volatile bool isRunning = false;
     private readonly object dataLock = new object();
     
@@ -98,7 +99,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
     private void SendLoop()
     {
         // Use double precision and proper rounding to avoid truncation errors
-        double exactIntervalTicks = (double)System.Diagnostics.Stopwatch.Frequency / 1000.0; // 1kHz = 1ms intervals
+        double exactIntervalTicks = (double)System.Diagnostics.Stopwatch.Frequency / sendFrequency_Hz;
         long targetIntervalTicks = (long)Math.Round(exactIntervalTicks);
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + targetIntervalTicks;
         
@@ -127,7 +128,6 @@ public class LabviewTcpCommunicator : MonoBehaviour
                 // Use SpinWait for sub-millisecond precision (0.1-1.0ms range)
                 SpinWait.SpinUntil(() => System.Diagnostics.Stopwatch.GetTimestamp() >= nextTargetTime);
             } // else: For sleepMs <= 0.1, just continue
-
 
             // Advance to next target time
             nextTargetTime += targetIntervalTicks;

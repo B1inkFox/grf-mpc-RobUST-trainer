@@ -72,8 +72,8 @@ public class RobotVisualizer : MonoBehaviour
             var sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             sphere.name = $"Pulley_{i + 1}";
             sphere.transform.localScale = Vector3.one * pulleySphereSize;
-            // Place in Unity world via UpdateVisual (handles mirror)
-            UpdateVisual(sphere.transform, pulleyPose);
+            UpdateVisual(sphere.transform, pulleyPose); // Place in Unity world via UpdateVisual (handles mirror)
+            
             // Remove collider to avoid interactions
             var col = sphere.GetComponent<Collider>();
             if (col != null) Destroy(col);
