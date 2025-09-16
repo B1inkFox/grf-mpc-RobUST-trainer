@@ -208,7 +208,7 @@ public class CableTensionPlanner : MonoBehaviour
             return new double[matrixCols];
         }
 
-        Debug.Log("Computed tensions: [" + string.Join(", ", System.Array.ConvertAll(tensions, t => t.ToString("F3"))) + "]");
+        // Debug.Log("Computed tensions: [" + string.Join(", ", System.Array.ConvertAll(tensions, t => t.ToString("F3"))) + "]");
 
         // // Calculate the actual wrench (forces and torques) from the computed tensions
         // double[] actualWrench = new double[6];

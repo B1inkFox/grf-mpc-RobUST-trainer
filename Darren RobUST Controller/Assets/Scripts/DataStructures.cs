@@ -28,11 +28,11 @@ public class TrackerData
 public class ForcePlateData
 {
     public Vector3 Force;
-    public Vector3 Moment;
+    public Vector3 CenterOfPressure;
 
-    public ForcePlateData(Vector3 force, Vector3 moment)
+    public ForcePlateData(Vector3 force, Vector3 centerOfPressure)
     {
         Force = force;
-        Moment = moment;
+        CenterOfPressure = centerOfPressure;
     }
 }

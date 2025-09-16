@@ -229,10 +229,8 @@ public class TrackerManager : MonoBehaviour
     {
         // Row 0
         targetMatrix.m00 = -openVRMatrix.m0;  targetMatrix.m01 = -openVRMatrix.m2;  targetMatrix.m02 = -openVRMatrix.m1;  targetMatrix.m03 = openVRMatrix.m3;
-
         // Row 1
         targetMatrix.m10 = -openVRMatrix.m4;  targetMatrix.m11 = -openVRMatrix.m6;  targetMatrix.m12 = -openVRMatrix.m5;  targetMatrix.m13 = openVRMatrix.m7;
-
         // Row 2
         targetMatrix.m20 = -openVRMatrix.m8;  targetMatrix.m21 = -openVRMatrix.m10;  targetMatrix.m22 = -openVRMatrix.m9; targetMatrix.m23 = openVRMatrix.m11;
     }
