@@ -29,7 +29,7 @@ The framework employs three main driver scripts (`LabviewTcpCommunicator`, `Trac
 - Uses data locks for thread-safe communication with the main control loop
 - Can be integrated into other robotic projects without modification
 
-### LabviewTcpCommunicator
+### `LabviewTcpCommunicator.cs`
 
 Manages communication with the low-level motor controller running on a PXIe system:
 
@@ -39,7 +39,7 @@ Manages communication with the low-level motor controller running on a PXIe syst
 - **Protocol**: Sends motor index and tension setpoint pairs via TCP
 - **Port**: 8052 (configurable)
 
-### TrackerManager
+### `TrackerManager.cs`
 
 Interfaces with HTC Vive tracking system for pose estimation:
 
@@ -49,7 +49,7 @@ Interfaces with HTC Vive tracking system for pose estimation:
 - **Setup**: Automatically discovers connected trackers and displays serial numbers for configuration
 - **Coordinate System**: Uses HTC Vive tracker orientation guidelines
 
-### ForcePlateManager
+### `ForcePlateManager.cs`
 
 Integrates with Vicon force measurement systems:
 
@@ -63,19 +63,18 @@ Integrates with Vicon force measurement systems:
 
 Solves the cable tension optimization problem using quadratic programming:
 
-- **Solver**: Alglib QP implementation
-- **Objective**: Minimize parasitic wrench while maintaining minimum cable tensions
+- **Solver**: Alglib Convex QP implementation (dense IPM)
+- **Objective**: achieve desired wrench while minimizing parasitic wrench and maintaining minimum cable tensions
 - **Configuration Parameters**:
   - Number of cables
   - Chest anteroposterior distance
   - Chest mediolateral distance
-  - Belt size specifications
+  - Belt size (small/medium/large)
 - **Primary Function**: `CalculateTensions(Matrix4x4 endEffectorPose, Vector3 desiredForce, Vector3 desiredTorque, Matrix4x4 robotFramePose)`
-- **Constraints**: Minimum tension maintenance across all cables
 
 ### RobotVisualizer
 
-Handles Unity scene updates and coordinate frame transformations:
+Handles Unity scene updates and coordinate frame transformations for visualization only:
 
 - **Coordinate Conversion**: Right-handed tracker data to left-handed Unity coordinate system
 - **Initialization**: Captures single frame tracker snapshot for reference positioning
@@ -113,7 +112,7 @@ Handles Unity scene updates and coordinate frame transformations:
 
 Testing Without Hardware
 For development and testing without the full LabVIEW motor control system:
-**Simulate TCP Listener**
+**Simulate Local TCP Listener**
 ```bash
 ncat -l 8052
 ```
@@ -131,4 +130,5 @@ This will display incoming motor commands for verification of communication prot
 - Frame tracker position is captured once during initialization and used as reference
 - System requires SteamVR to be running and trackers connected before Unity execution
 - Motor indices must be configured before runtime - no dynamic motor discovery supported
+
 
