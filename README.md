@@ -1,6 +1,6 @@
 # RobUST Robot Control Framework
 
-A Unity-based real-time control system for cable-driven robotics, specifically designed for the RobUST robot platform. This framework provides deterministic motor control, multi-sensor integration, and physics-based tension planning for responsive cable actuation.
+A Unity-based real-time control system for cable-driven robotics, specifically designed for the RobUST robot platform. This framework provides Soft real-time deterministic motor control, multi-sensor integration, and tension planning for cable actuation.
 
 ## Project Architecture
 
@@ -92,9 +92,7 @@ Handles Unity scene updates and coordinate frame transformations:
 
 ### Quick Start
 
-1. **Clone Repository**
-   ```bash
-   git clone [repository-url]
+1. Clone Repository
 2. Open Project in Unity
 - Launch Unity Hub
 - Select "Open Project"
@@ -116,7 +114,7 @@ Handles Unity scene updates and coordinate frame transformations:
 Testing Without Hardware
 For development and testing without the full LabVIEW motor control system:
 **Simulate TCP Listener**
-```
+```bash
 ncat -l 8052
 ```
 This will display incoming motor commands for verification of communication protocols.
@@ -133,3 +131,4 @@ This will display incoming motor commands for verification of communication prot
 - Frame tracker position is captured once during initialization and used as reference
 - System requires SteamVR to be running and trackers connected before Unity execution
 - Motor indices must be configured before runtime - no dynamic motor discovery supported
+
