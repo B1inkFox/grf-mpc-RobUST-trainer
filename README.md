@@ -1,14 +1,15 @@
 # RobUST Robot Control Framework
 
-A Unity-based real-time control system for cable-driven robotics, specifically designed for the RobUST robot platform. This framework provides Soft real-time deterministic motor control, multi-sensor integration, and tension planning for cable actuation.
+A Unity-based real-time control system for RobUST cable-driven robotic platform. This framework provides Soft real-time deterministic motor control, multi-sensor integration, and tension planning for cable actuation.
 
 ## Project Architecture
 
 ### Core Design Philosophy
 
-Unlike typical Unity projects where each `MonoBehaviour` operates independently with its own `Update()` loop, this framework implements a centralized control architecture for deterministic real-time robotic control. The system uses a single main control loop with dedicated driver threads for hardware interfaces.
+Unlike typical Unity projects where each `MonoBehaviour` operates independently with its own `Update()` loop, this framework implements a centralized control architecture for more (soft) deterministic real-time robotic control. The system uses a single main control loop with dedicated driver threads for hardware interfaces.
 
 ### Key Components
+Unity Scripts are always located in Assets/Scripts. These scripts can be attached to specific game objects in the Unity Scene. A basic Unity Scene for this project is implemented with a default `MainCamera`, an empty `RobotSystem` GameObject, and 3 tracker visuals for the robot frame, end-effector, and user center of mass.
 
 | Script | Function |
 |--------|----------|
@@ -130,5 +131,6 @@ This will display incoming motor commands for verification of communication prot
 - Frame tracker position is captured once during initialization and used as reference
 - System requires SteamVR to be running and trackers connected before Unity execution
 - Motor indices must be configured before runtime - no dynamic motor discovery supported
+
 
 
