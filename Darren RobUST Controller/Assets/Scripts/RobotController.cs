@@ -36,6 +36,7 @@ public class RobotController : MonoBehaviour
 
     private void Start()
     {
+        SetProcessCoresAndPriority();
         if (!ValidateModules())
         {
             enabled = false; // Disable this script if modules are missing
@@ -83,7 +84,7 @@ public class RobotController : MonoBehaviour
         }
 
         Debug.Log("All robot modules initialized successfully.");
-                
+
         // Start the TCP connection if enabled
         if (isLabviewControlEnabled)
         {
@@ -115,7 +116,7 @@ public class RobotController : MonoBehaviour
             Vector3.zero, // desiredTorque (zero for test)
             robot_frame_tracker.PoseMatrix
         );
-        
+
         // Send the calculated tensions to LabVIEW
         tcpCommunicator.UpdateTensionSetpoint(tensions);
     }
@@ -157,7 +158,7 @@ public class RobotController : MonoBehaviour
         if (forcePlateManager == null) { Debug.LogError("Module not assigned in Inspector: forcePlateManager", this); allValid = false; }
         if (tcpCommunicator == null) { Debug.LogError("Module not assigned in Inspector: tcpCommunicator", this); allValid = false; }
         if (visualizer == null) { Debug.LogError("Visualizer not assigned in Inspector: visualizer", this); allValid = false; }
-        
+
         return allValid;
     }
 
@@ -166,5 +167,20 @@ public class RobotController : MonoBehaviour
         // Clean shutdown of threaded components.
         // TrackerManager handles its own shutdown via its OnDestroy method.
         tcpCommunicator?.Disconnect();
+    }
+
+    private void SetProcessCoresAndPriority()
+    {
+        using (System.Diagnostics.Process process = System.Diagnostics.Process.GetCurrentProcess())
+        {
+            // Set to high priority but not realtime to avoid system lockups
+            process.PriorityClass = System.Diagnostics.ProcessPriorityClass.High;
+
+            // Restrict to first 8 cores (P-cores on i9-13900K)
+            // 0xFF = 255 = 11111111 in binary
+            process.ProcessorAffinity = new IntPtr(0xFF);
+
+            Debug.Log($"Process priority set to {process.PriorityClass}, running on cores 0-7");
+        }
     }
 }

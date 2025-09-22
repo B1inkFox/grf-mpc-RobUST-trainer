@@ -1,6 +1,7 @@
 using UnityEngine;
 using System;
 using System.Threading;
+using ViconDataStreamSDK.DotNET;
 
 /// <summary>
 /// Manages data from the Vicon force plates using a dedicated thread
@@ -27,8 +28,8 @@ public class ForcePlateManager : MonoBehaviour
     private readonly object dataLock = new object();
     private ForcePlateData[] forcePlateDataArray;
 
-    // Vicon SDK access
-    private object viconClient;
+    // Direct reference to Vicon client
+    private Client viconClient;
 
     /// <summary>
     /// Initializes the force plate manager.
@@ -48,6 +49,7 @@ public class ForcePlateManager : MonoBehaviour
         isRunning = true;
         forcePlateThread = new Thread(ForcePlateSamplingLoop);
         forcePlateThread.IsBackground = true;
+        forcePlateThread.Priority = ThreadPriority.AboveNormal;
         forcePlateThread.Start();
         
         Debug.Log($"ForcePlateManager initialized successfully. Sampling at {samplingRate_Hz} Hz.");
@@ -59,50 +61,28 @@ public class ForcePlateManager : MonoBehaviour
     /// </summary>
     private bool InitializeViconSDK()
     {
-        // Try to load the Vicon assembly
-        var assembly = System.Reflection.Assembly.Load("ViconDataStreamSDK_DotNET");
-        if (assembly == null)
-        {
-            Debug.LogError("Failed to load ViconDataStreamSDK_DotNET assembly. Make sure all DLLs are correctly placed in the Plugins/x86_64 folder.");
-            return false;
-        }
+        // Create the client directly
+        viconClient = new Client();
         
-        // Create the client dynamically
-        Type clientType = assembly.GetType("ViconDataStreamSDK.DotNET.Client");
-        if (clientType == null)
-        {
-            Debug.LogError("Failed to find Client type in Vicon SDK assembly.");
-            return false;
-        }
-        
-        viconClient = Activator.CreateInstance(clientType);
-        
-        // Connect to the local Vicon DataStream server - using the exact format from the example
+        // Connect to the local Vicon DataStream server
         string connectionString = $"localhost:{serverPort}";
         Debug.Log($"Connecting to Vicon DataStream at {connectionString}...");
         
         // Connect to Vicon server
-        var connectMethod = clientType.GetMethod("Connect");
-        var result = connectMethod.Invoke(viconClient, new object[] { connectionString });
+        Output_Connect result = viconClient.Connect(connectionString);
         
-        // Check result
-        var resultProperty = result.GetType().GetProperty("Result");
-        object resultValue = resultProperty.GetValue(result);
-        
-        if (!resultValue.ToString().Equals("Success"))
+        if (result.Result != Result.Success)
         {
-            Debug.LogError($"Failed to connect to Vicon DataStream: {resultValue}");
+            Debug.LogError($"Failed to connect to Vicon DataStream: {result.Result}");
             return false;
         }
         
         // Enable the required data types
-        clientType.GetMethod("EnableDeviceData").Invoke(viconClient, null);
+        viconClient.EnableDeviceData();
         
         // Get force plate count
-        var getForcePlateCountMethod = clientType.GetMethod("GetForcePlateCount");
-        var countResult = getForcePlateCountMethod.Invoke(viconClient, null);
-        var countProperty = countResult.GetType().GetProperty("ForcePlateCount");
-        numForcePlates = (int)Convert.ToUInt32(countProperty.GetValue(countResult));
+        Output_GetForcePlateCount countResult = viconClient.GetForcePlateCount();
+        numForcePlates = (int)countResult.ForcePlateCount;
         
         if (numForcePlates <= 0)
         {
@@ -127,12 +107,6 @@ public class ForcePlateManager : MonoBehaviour
     /// </summary>
     private void ForcePlateSamplingLoop()
     {
-        // Cache method info objects for better performance
-        Type clientType = viconClient.GetType();
-        var getFrameMethod = clientType.GetMethod("GetFrame");
-        var getGlobalForceVectorMethod = clientType.GetMethod("GetGlobalForceVector");
-        var getGlobalCentreOfPressureMethod = clientType.GetMethod("GetGlobalCentreOfPressure");
-        
         // Precise timing using high-resolution Stopwatch
         double exactIntervalTicks = (double)System.Diagnostics.Stopwatch.Frequency / samplingRate_Hz;
         long targetIntervalTicks = (long)Math.Round(exactIntervalTicks);
@@ -141,34 +115,30 @@ public class ForcePlateManager : MonoBehaviour
         while (isRunning)
         {
             // Get a new frame from Vicon
-            getFrameMethod.Invoke(viconClient, null);
+            viconClient.GetFrame();
             
             // Process each force plate directly
             for (uint i = 0; i < numForcePlates; i++)
             {
                 // Get force in global coordinate system
-                var forceResult = getGlobalForceVectorMethod.Invoke(viconClient, new object[] { i });
-                var forceVectorProperty = forceResult.GetType().GetProperty("ForceVector");
-                double[] forceVector = (double[])forceVectorProperty.GetValue(forceResult);
+                Output_GetGlobalForceVector forceResult = viconClient.GetGlobalForceVector(i);
                 
                 // Get center of pressure
-                var copResult = getGlobalCentreOfPressureMethod.Invoke(viconClient, new object[] { i });
-                var copVectorProperty = copResult.GetType().GetProperty("CentreOfPressure");
-                double[] copVector = (double[])copVectorProperty.GetValue(copResult);
+                Output_GetGlobalCentreOfPressure copResult = viconClient.GetGlobalCentreOfPressure(i);
                 
                 // Thread-safe update directly to the array
                 lock (dataLock)
                 {
                     forcePlateDataArray[i] = new ForcePlateData(
                         new Vector3(
-                            (float)forceVector[0],
-                            (float)forceVector[1],
-                            (float)forceVector[2]
+                            (float)forceResult.ForceVector[0],
+                            (float)forceResult.ForceVector[1],
+                            (float)forceResult.ForceVector[2]
                         ),
                         new Vector3(
-                            (float)copVector[0],
-                            (float)copVector[1],
-                            (float)copVector[2]
+                            (float)copResult.CentreOfPressure[0],
+                            (float)copResult.CentreOfPressure[1],
+                            (float)copResult.CentreOfPressure[2]
                         )
                     );
                 }
@@ -200,6 +170,11 @@ public class ForcePlateManager : MonoBehaviour
     {
         lock (dataLock)
         {
+            if (plateIndex < 0 || plateIndex >= numForcePlates)
+            {
+                Debug.LogWarning($"Invalid force plate index: {plateIndex}");
+                return new ForcePlateData(Vector3.zero, Vector3.zero);
+            }
             return new ForcePlateData(
                 forcePlateDataArray[plateIndex].Force, 
                 forcePlateDataArray[plateIndex].CenterOfPressure
@@ -234,9 +209,8 @@ public class ForcePlateManager : MonoBehaviour
         
         if (isConnected && viconClient != null)
         {
-            // Disconnect using reflection
-            var disconnectMethod = viconClient.GetType().GetMethod("Disconnect");
-            disconnectMethod.Invoke(viconClient, null);
+            // Disconnect directly
+            viconClient.Disconnect();
         }
     }
 }

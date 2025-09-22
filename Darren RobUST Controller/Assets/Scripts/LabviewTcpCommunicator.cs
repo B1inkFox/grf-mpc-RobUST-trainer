@@ -83,6 +83,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
             IsConnected = true;
             isRunning = true;
             sendThread = new Thread(SendLoop) { IsBackground = true };
+            sendThread.Priority = ThreadPriority.Highest;
             sendThread.Start();
             
             UnityEngine.Debug.Log("Connected to LabVIEW server.");
