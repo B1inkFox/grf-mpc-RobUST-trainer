@@ -179,7 +179,6 @@ public class RobotController : MonoBehaviour
             // Restrict to first 8 cores (P-cores on i9-13900K)
             // 0xFF = 255 = 11111111 in binary
             process.ProcessorAffinity = new IntPtr(0xFF);
-
             Debug.Log($"Process priority set to {process.PriorityClass}, running on cores 0-7");
         }
     }
