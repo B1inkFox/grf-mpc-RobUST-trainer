@@ -1,23 +1,19 @@
 using UnityEngine;
 using System;
 using System.Threading;
-using ViconDataStreamSDK.DotNET;
+using ViconDataStreamSDK.CSharp;
 
 /// <summary>
 /// Manages data from the Vicon force plates using a dedicated thread
 /// for deterministic sampling of ground reaction forces and center of pressure.
 /// </summary>
 public class ForcePlateManager : MonoBehaviour
-{
-    [Header("Connection Settings")]
-    [Tooltip("Port of the Vicon DataStream server")]
-    public int serverPort = 801;
-    
-    [Header("Performance Settings")]
+{    
     [Tooltip("Target sampling rate in Hz")]
     public double samplingRate_Hz = 100.0;
 
     private int numForcePlates;
+    private string serverPort = "801";
     
     // Thread-related fields
     private Thread forcePlateThread;
@@ -49,36 +45,35 @@ public class ForcePlateManager : MonoBehaviour
         isRunning = true;
         forcePlateThread = new Thread(ForcePlateSamplingLoop);
         forcePlateThread.IsBackground = true;
-        forcePlateThread.Priority = ThreadPriority.AboveNormal;
+        forcePlateThread.Priority = System.Threading.ThreadPriority.AboveNormal;
         forcePlateThread.Start();
         
-        Debug.Log($"ForcePlateManager initialized successfully. Sampling at {samplingRate_Hz} Hz.");
+        Debug.Log($"ForcePlateManager initialized successfully. Sampling at {samplingRate_Hz} Hz on port {serverPort}.");
         return true;
     }
     
     /// <summary>
-    /// Try to initialize the Vicon SDK
+    /// Initialize the Vicon SDK using the Unity plugin
     /// </summary>
     private bool InitializeViconSDK()
     {
         // Create the client directly
         viconClient = new Client();
         
-        // Connect to the local Vicon DataStream server
+        // Connect to the Vicon DataStream server
         string connectionString = $"localhost:{serverPort}";
         Debug.Log($"Connecting to Vicon DataStream at {connectionString}...");
         
-        // Connect to Vicon server
-        Output_Connect result = viconClient.Connect(connectionString);
+        // Keep trying to connect until successful
+        while (viconClient.Connect(connectionString).Result != Result.Success) { Thread.Sleep(10); }
         
-        if (result.Result != Result.Success)
-        {
-            Debug.LogError($"Failed to connect to Vicon DataStream: {result.Result}");
-            return false;
-        }
+        // Use ClientPullPreFetch mode for lowest latency (especially important for port 804)
+        viconClient.SetStreamMode(StreamMode.ClientPullPreFetch);
         
-        // Enable the required data types
+        // Need to get a frame before enabling device data
+        viconClient.GetFrame();
         viconClient.EnableDeviceData();
+        viconClient.GetFrame();
         
         // Get force plate count
         Output_GetForcePlateCount countResult = viconClient.GetForcePlateCount();
@@ -125,7 +120,7 @@ public class ForcePlateManager : MonoBehaviour
                 
                 // Get center of pressure
                 Output_GetGlobalCentreOfPressure copResult = viconClient.GetGlobalCentreOfPressure(i);
-                
+
                 // Thread-safe update directly to the array
                 lock (dataLock)
                 {
@@ -141,6 +136,7 @@ public class ForcePlateManager : MonoBehaviour
                             (float)copResult.CentreOfPressure[2]
                         )
                     );
+                    //Debug.Log($"ForcePlate[{i}] Force: {forcePlateDataArray[i].Force} | Time(ms): {System.Diagnostics.Stopwatch.GetTimestamp() * 1000.0 / System.Diagnostics.Stopwatch.Frequency:F3}");
                 }
             }
             

@@ -67,7 +67,7 @@ public class TrackerManager : MonoBehaviour
             isRunning = true;
             trackingThread = new Thread(TrackingLoop);
             trackingThread.IsBackground = true;
-            trackingThread.Priority = ThreadPriority.AboveNormal;
+            trackingThread.Priority = System.Threading.ThreadPriority.AboveNormal;
             trackingThread.Start();
 
             Debug.Log("TrackerManager initialized - Direct OpenVR tracking at 90Hz");

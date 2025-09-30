@@ -326,7 +326,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d1ccf24e9f85f6a399c49ed4452f7585, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  serverPort: 801
   samplingRate_Hz: 100
 --- !u!114 &748268985
 MonoBehaviour:
@@ -340,9 +339,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9f616882f0f732a32be958a422cfab9c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  comTrackerSerial: LHR-FA3DF493
-  endEffectorSerial: LHR-8A574A94
-  frameTrackerSerial: LHR-115BD507
+  comTrackerSerial: LHR-90F27622
+  endEffectorSerial: LHR-7979CFC9
+  frameTrackerSerial: LHR-C3061E36
 --- !u!114 &748268986
 MonoBehaviour:
   m_ObjectHideFlags: 0

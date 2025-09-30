@@ -23,7 +23,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
     
     // Threading
     private Thread sendThread;
-    private double sendFrequency_Hz = 1000.0; // 1kHz
+    private double sendFrequency_Hz = 500.0; // 500Hz
     private volatile bool isRunning = false;
     private readonly object dataLock = new object();
     
@@ -83,7 +83,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
             IsConnected = true;
             isRunning = true;
             sendThread = new Thread(SendLoop) { IsBackground = true };
-            sendThread.Priority = ThreadPriority.Highest;
+            sendThread.Priority = System.Threading.ThreadPriority.Highest;
             sendThread.Start();
             
             UnityEngine.Debug.Log("Connected to LabVIEW server.");

@@ -1,4 +1,5 @@
 using UnityEngine;
+using System;
 
 /// <summary>
 /// Main controller for the cable-driven robot.
@@ -60,8 +61,7 @@ public class RobotController : MonoBehaviour
         if (!forcePlateManager.Initialize())
         {
             Debug.LogError("Failed to initialize ForcePlateManager.", this);
-            enabled = false;
-            return;
+            // dont disable program if no force plates
         }
         if (!tcpCommunicator.Initialize(tensionPlanner.matrixCols))
         {
