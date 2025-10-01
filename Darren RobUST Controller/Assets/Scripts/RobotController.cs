@@ -16,7 +16,7 @@ public class RobotController : MonoBehaviour
     public CableTensionPlanner tensionPlanner;
 
     [Tooltip("The ForcePlateManager instance for reading force plate data.")]
-    public ForcePlateManager forcePlateManager;
+    public ForcePlateManager_ServerPush forcePlateManager;
 
     [Tooltip("The LabviewTcpCommunicator instance for sending motor commands.")]
     public LabviewTcpCommunicator tcpCommunicator;

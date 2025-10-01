@@ -8,7 +8,7 @@ using System;
 public class CableTensionPlanner : MonoBehaviour
 {
     [Tooltip("Number of columns (cables) in the structure matrix.")]
-    public int matrixCols = 4;
+    public int matrixCols = 8;
 
     [Header("Chest Anterior-Posterior Distance")]
     [Tooltip("Measured Thickness of the chest in the anterior-posterior direction.")]

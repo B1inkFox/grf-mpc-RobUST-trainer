@@ -7,25 +7,21 @@ using ViconDataStreamSDK.CSharp;
 /// Manages data from the Vicon force plates using a dedicated thread
 /// for deterministic sampling of ground reaction forces and center of pressure.
 /// </summary>
-public class ForcePlateManager : MonoBehaviour
+public class ForcePlateManager_ServerPush : MonoBehaviour
 {    
-    [Tooltip("Target sampling rate in Hz")]
-    public double samplingRate_Hz = 100.0;
     [Tooltip("Hard-set number of force plates")]
     public int numForcePlates = 2;
 
-    private string serverPort = "801";
-    
     // Thread-related fields
     private Thread forcePlateThread;
     private volatile bool isRunning = false;
     private bool isConnected = false;
-    
+    private string serverPort = "801";
+        
     // Thread-safe data storage with locking
     private readonly object dataLock = new object();
     private ForcePlateData[] forcePlateDataArray;
 
-    // Direct reference to Vicon client
     private Client viconClient;
 
     /// <summary>
@@ -49,7 +45,7 @@ public class ForcePlateManager : MonoBehaviour
         forcePlateThread.Priority = System.Threading.ThreadPriority.AboveNormal;
         forcePlateThread.Start();
         
-        Debug.Log($"ForcePlateManager initialized successfully. Sampling at {samplingRate_Hz} Hz on port {serverPort}.");
+        Debug.Log($"ForcePlateManager initialized successfully on port {serverPort}.");
         return true;
     }
     
@@ -58,6 +54,19 @@ public class ForcePlateManager : MonoBehaviour
     /// </summary>
     private bool InitializeViconSDK()
     {
+        if (numForcePlates <= 0)
+        {
+            Debug.LogError("Force Plate Count in Inspector is not set to a positive integer.");
+            return false;
+        }
+
+        // Allocate data arrays based on force plate count
+        forcePlateDataArray = new ForcePlateData[numForcePlates];
+        for (int i = 0; i < numForcePlates; i++)
+        {
+            forcePlateDataArray[i] = new ForcePlateData(Vector3.zero, Vector3.zero);
+        }
+
         // Create the client directly
         viconClient = new Client();
         string connectionString = $"localhost:{serverPort}";
@@ -65,27 +74,13 @@ public class ForcePlateManager : MonoBehaviour
         
         // Keep trying to connect until successful
         while (viconClient.Connect(connectionString).Result != Result.Success) { Thread.Sleep(10); }
-        
-        // Use ClientPullPreFetch mode for lower latency
-        viconClient.SetStreamMode(StreamMode.ClientPullPreFetch);
+
+        viconClient.SetStreamMode(StreamMode.ServerPush);
         // Need to get a frame before enabling device data
         viconClient.GetFrame();
         viconClient.EnableDeviceData();
         viconClient.GetFrame();
-        
-        if (numForcePlates <= 0)
-        {
-            Debug.LogError("Force Plate Count in Inspector is not set to a positive integer.");
-            return false;
-        }
-        
-        // Allocate data arrays based on detected force plate count
-        forcePlateDataArray = new ForcePlateData[numForcePlates];
-        for (int i = 0; i < numForcePlates; i++)
-        {
-            forcePlateDataArray[i] = new ForcePlateData(Vector3.zero, Vector3.zero);
-        }
-        
+                
         isConnected = true;
         Debug.Log($"Successfully connected to Vicon DataStream");
         return true;
@@ -96,22 +91,16 @@ public class ForcePlateManager : MonoBehaviour
     /// </summary>
     private void ForcePlateSamplingLoop()
     {
-        // Precise timing using high-resolution Stopwatch
-        double exactIntervalTicks = (double)System.Diagnostics.Stopwatch.Frequency / samplingRate_Hz;
-        long targetIntervalTicks = (long)Math.Round(exactIntervalTicks);
-        long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + targetIntervalTicks;
-        
         while (isRunning)
         {
-            // Get a new frame from Vicon
             viconClient.GetFrame();
+            Debug.Log($"Force plate data updated at {1000.0 * System.Diagnostics.Stopwatch.GetTimestamp() / System.Diagnostics.Stopwatch.Frequency:F3} ms");
             
             // Process each force plate directly
             for (uint i = 0; i < numForcePlates; i++)
             {
                 // Get force in global coordinate system
                 Output_GetGlobalForceVector forceResult = viconClient.GetGlobalForceVector(i);
-                
                 // Get center of pressure
                 Output_GetGlobalCentreOfPressure copResult = viconClient.GetGlobalCentreOfPressure(i);
 
@@ -131,22 +120,6 @@ public class ForcePlateManager : MonoBehaviour
                         )
                     );
                 }
-            }
-            
-            // Precise timing control
-            long currentTime = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (nextTargetTime > currentTime)
-            {
-                // Use SpinWait for sub-millisecond precision
-                SpinWait.SpinUntil(() => System.Diagnostics.Stopwatch.GetTimestamp() >= nextTargetTime);
-            }
-
-            // Advance to next target time with drift compensation
-            nextTargetTime += targetIntervalTicks;
-            currentTime = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (nextTargetTime <= currentTime)
-            {
-                nextTargetTime = currentTime + targetIntervalTicks;
             }
         }
     }

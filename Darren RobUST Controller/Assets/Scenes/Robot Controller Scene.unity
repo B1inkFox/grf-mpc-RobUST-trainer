@@ -289,8 +289,9 @@ GameObject:
   - component: {fileID: 748268986}
   - component: {fileID: 748268985}
   - component: {fileID: 748268984}
-  - component: {fileID: 748268983}
+  - component: {fileID: 748268990}
   - component: {fileID: 748268988}
+  - component: {fileID: 748268983}
   - component: {fileID: 748268989}
   m_Layer: 0
   m_Name: RobotSystem
@@ -327,6 +328,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   samplingRate_Hz: 100
+  numForcePlates: 2
 --- !u!114 &748268985
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -356,7 +358,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   trackerManager: {fileID: 748268985}
   tensionPlanner: {fileID: 748268988}
-  forcePlateManager: {fileID: 748268984}
+  forcePlateManager: {fileID: 748268990}
   tcpCommunicator: {fileID: 748268983}
   visualizer: {fileID: 748268989}
   isLabviewControlEnabled: 1
@@ -408,6 +410,19 @@ MonoBehaviour:
   frameTrackerVisual: {fileID: 717259972}
   visualizationCamera: {fileID: 1682237651}
   cam_pos_robotFrame: {x: 2, y: 10, z: 5}
+--- !u!114 &748268990
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 748268981}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 32bf75e1f0dc98f40b6abf0536ffd27a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ForcePlateManager_ServerPush
+  numForcePlates: 2
 --- !u!1001 &1586278569
 PrefabInstance:
   m_ObjectHideFlags: 0
