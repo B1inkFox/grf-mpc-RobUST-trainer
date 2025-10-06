@@ -54,9 +54,9 @@ Interfaces with HTC Vive tracking system for pose estimation:
 
 Integrates with Vicon force measurement systems:
 
-- **Status**: Work in progress
-- **Interface**: Vicon DataStream SDK via .NET DLL packages
-- **Architecture**: Follows same threaded driver pattern as other components
+- **Status**: Have to test in live mode on RobUST
+- **Interface**: Vicon DataStream SDK via Unity Vicon Plugin
+- **Architecture**: Utilizies `ServerPush` mode meaning Vicon Box triggers timing
 
 ## Physics and Control
 
@@ -123,7 +123,7 @@ This will display incoming motor commands for verification of communication prot
 - Unity: 2021.3 LTS or newer recommended
 - SteamVR: Latest version through Steam
 - OpenVR: Included with SteamVR installation
-- Vicon DataStream SDK: .NET packages (for force plate integration) ---> Plugins Folder
+- Vicon Unity Plugin 1.3 `.unitypackage`
 - Alglib: Included for quadratic programming solver ---> Plugins Folder
 
 ### Usage Notes
@@ -131,6 +131,7 @@ This will display incoming motor commands for verification of communication prot
 - Frame tracker position is captured once during initialization and used as reference
 - System requires SteamVR to be running and trackers connected before Unity execution
 - Motor indices must be configured before runtime - no dynamic motor discovery supported
+
 
 
 
