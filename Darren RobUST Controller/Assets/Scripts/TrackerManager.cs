@@ -58,10 +58,7 @@ public class TrackerManager : MonoBehaviour
             }
 
             // Find all trackers in a single scan
-            if (!FindAllTrackers())
-            {
-                return false;
-            }
+            if (!FindAllTrackers()) return false;
 
             // Start the high-frequency tracking thread
             isRunning = true;
@@ -87,9 +84,8 @@ public class TrackerManager : MonoBehaviour
     {
         comTrackerIndex = endEffectorIndex = frameTrackerIndex = OpenVR.k_unTrackedDeviceIndexInvalid;
         var buffer = new System.Text.StringBuilder((int)OpenVR.k_unMaxPropertyStringSize);
-        int found = 0;
         
-        for (uint deviceId = 0; deviceId < OpenVR.k_unMaxTrackedDeviceCount && found < 3; deviceId++)
+        for (uint deviceId = 0; deviceId < OpenVR.k_unMaxTrackedDeviceCount; deviceId++)
         {
             if (vrSystem.GetTrackedDeviceClass(deviceId) != ETrackedDeviceClass.GenericTracker)
                 continue;
@@ -108,19 +104,16 @@ public class TrackerManager : MonoBehaviour
             if (string.Equals(serial, comTrackerSerial, StringComparison.OrdinalIgnoreCase))
             {
                 comTrackerIndex = deviceId;
-                found++;
                 Debug.Log($"--> Matched CoM tracker: {serial}");
             }
             else if (string.Equals(serial, endEffectorSerial, StringComparison.OrdinalIgnoreCase))
             {
                 endEffectorIndex = deviceId;
-                found++;
                 Debug.Log($"--> Matched End-Effector tracker: {serial}");
             }
             else if (string.Equals(serial, frameTrackerSerial, StringComparison.OrdinalIgnoreCase))
             {
                 frameTrackerIndex = deviceId;
-                found++;
                 Debug.Log($"--> Matched Frame tracker: {serial}");
             }
         }

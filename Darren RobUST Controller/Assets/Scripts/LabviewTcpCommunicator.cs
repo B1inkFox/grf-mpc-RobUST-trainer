@@ -99,40 +99,41 @@ public class LabviewTcpCommunicator : MonoBehaviour
     /// </summary>
     private void SendLoop()
     {
+        if (networkStream == null || tcpClient == null || !tcpClient.Connected)
+        {
+            isRunning = false;
+            IsConnected = false;
+            return;
+        }
+
         // Use double precision and proper rounding to avoid truncation errors
         double exactIntervalTicks = (double)System.Diagnostics.Stopwatch.Frequency / sendFrequency_Hz;
         long targetIntervalTicks = (long)Math.Round(exactIntervalTicks);
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + targetIntervalTicks;
         
-        while (isRunning && IsConnected)
+        while (isRunning)
         {
-            if (networkStream != null)
+            // Get thread-safe copy of tension data
+            lock (dataLock)
             {
-                // Get thread-safe copy of tension data
-                lock (dataLock)
-                {
-                    Array.Copy(tensions, sendTensions, tensions.Length);
-                }
-                
-                // Send data
-                string packet = FormatPacket(motorNumbers, sendTensions);
-                byte[] data = Encoding.ASCII.GetBytes(packet);
-                networkStream.Write(data, 0, data.Length);
+                Array.Copy(tensions, sendTensions, tensions.Length);
             }
+            // Send data
+            string packet = FormatPacket(motorNumbers, sendTensions);
+            byte[] data = Encoding.ASCII.GetBytes(packet);
+            networkStream.Write(data, 0, data.Length);
 
             // Precise timing: wait until next target time
             long timeUntilNext = nextTargetTime - System.Diagnostics.Stopwatch.GetTimestamp();
             double sleepMs = (double)timeUntilNext * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             
             if (sleepMs > 0.1)
-            {
-                // Use SpinWait for sub-millisecond precision (0.1-1.0ms range)
+            { // Use SpinWait for sub-millisecond precision (0.1-1.0ms range)
                 SpinWait.SpinUntil(() => System.Diagnostics.Stopwatch.GetTimestamp() >= nextTargetTime);
             } // else: For sleepMs <= 0.1, just continue
 
             // Advance to next target time
             nextTargetTime += targetIntervalTicks;
-            
             // Drift compensation: if we're behind, reset to maintain frequency
             long currentTime = System.Diagnostics.Stopwatch.GetTimestamp();
             if (nextTargetTime <= currentTime)
