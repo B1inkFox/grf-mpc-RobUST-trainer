@@ -26,7 +26,8 @@ public class LabviewTcpCommunicator : MonoBehaviour
     private double sendFrequency_Hz = 500.0; // 500Hz
     private volatile bool isRunning = false;
     private readonly object dataLock = new object();
-    
+    private volatile char controlModeCode = 'O';
+
     // Current data to send - pre-allocated during initialization
     private double[] tensions;
 
@@ -67,6 +68,22 @@ public class LabviewTcpCommunicator : MonoBehaviour
         {
             Array.Copy(newTensions, tensions, tensions.Length);
         }
+    }
+
+    /// <summary>
+    /// Switches outgoing packets to closed-loop control mode.
+    /// </summary>
+    public void SetClosedLoopControl()
+    {
+        controlModeCode = 'C';
+    }
+
+    /// <summary>
+    /// Switches outgoing packets to open-loop control mode.
+    /// </summary>
+    public void SetOpenLoopControl()
+    {
+        controlModeCode = 'O';
     }
 
     public async void ConnectToServer()
@@ -150,7 +167,9 @@ public class LabviewTcpCommunicator : MonoBehaviour
     private string FormatPacket(int[] motors, double[] tensions)
     {
         var sb = new StringBuilder();
-        sb.Append($"K,{motors.Length}");
+        sb.Append(controlModeCode);
+        sb.Append(',');
+        sb.Append(motors.Length);
         
         for (int i = 0; i < motors.Length; i++)
         {

@@ -105,7 +105,7 @@ public class CableTensionPlanner : MonoBehaviour
         alglib.minqpsetlinearterm(qpState, linear);
         alglib.minqpsetbc(qpState, tensionLower, tensionUpper);
 
-        // Pre-compute fixed pulley positions in the RIGHT-HANDED coordinate system, relative to robot frame tracker 
+        // Pre-allocate fixed pulley positions relative to robot frame tracker 
         framePulleyPositions[0] = new Vector3(-.5f, 1.0f, 1.0f);   // Front-Right Top (Motor index 0)
         framePulleyPositions[1] = new Vector3(-.5f, 0.0f, 1.0f);  // Front-Left Top (Motor index 1)
         framePulleyPositions[2] = new Vector3(.5f, 0.0f, 1.0f); // Back-Left Top (Motor index 2)
@@ -115,7 +115,7 @@ public class CableTensionPlanner : MonoBehaviour
         framePulleyPositions[6] = new Vector3(.5f, 0.0f, -1.0f); // Back-Left Bottom (Motor index 6)
         framePulleyPositions[7] = new Vector3(.5f, 1.0f, -1.0f);  // Back-Right Bottom (Motor index 7)
 
-        // Pre-compute local attachment points based on belt geometry in the RIGHT-HANDED coordinate system
+        // Pre-allocate local attachment points based on belt geometry relative to end-effector tracker
         float halfAP = chest_AP_distance / 2.0f;
         float halfML = chest_ML_distance / 2.0f;
         float ap_factor = (beltSize == BeltSize.Small) ? 0.7f : 0.85f;

@@ -142,9 +142,8 @@ public class RobotController : MonoBehaviour
     private (Vector3 force, Vector3 torque) CalculateDesiredWrench(Matrix4x4 comPose, Matrix4x4 endEffectorPose)
     {
         // --- FUTURE IMPLEMENTATION ---
-        // This is where you would implement logic like force fields, perturbations, etc.
+        // This is where we would implement logic like force fields, perturbations, etc.
 
-        // For now, return a zero wrench (the robot will do nothing).
         return (Vector3.zero, Vector3.zero);
     }
 
