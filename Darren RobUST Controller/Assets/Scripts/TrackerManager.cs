@@ -168,7 +168,8 @@ public class TrackerManager : MonoBehaviour
                     UpdateMatrixFromOpenVR(trackedDevicePoses[frameTrackerIndex].mDeviceToAbsoluteTracking, ref frameTrackerData.PoseMatrix);
                 }
             }
-
+            
+            System.Threading.SpinWait.SpinUntil(() => System.Diagnostics.Stopwatch.GetTimestamp() >= nextTargetTime);
             // Advance the target time for the next loop iteration.
             nextTargetTime += targetIntervalTicks;
             // Drift compensation: If we've fallen behind, reset the timer
