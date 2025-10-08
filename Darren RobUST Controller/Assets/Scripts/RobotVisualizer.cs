@@ -104,8 +104,8 @@ public class RobotVisualizer : MonoBehaviour
 
         visualizationCamera.transform.position = cam_pos_unity;
         visualizationCamera.transform.LookAt(frameTrackerVisual.position, -frameTrackerVisual.forward);
-        // Pan the camera 30 degrees to the right (relative to its current view direction)
-        visualizationCamera.transform.Rotate(0f, 30f, 0f, Space.Self);
+        // Pan the camera 10 degrees to the right (relative to its current view direction)
+        visualizationCamera.transform.Rotate(0f, 10f, 0f, Space.Self);
 
         float distance = Vector3.Distance(visualizationCamera.transform.position, frameTrackerVisual.position);
     }

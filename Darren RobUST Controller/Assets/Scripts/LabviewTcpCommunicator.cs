@@ -23,7 +23,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
     
     // Threading
     private Thread sendThread;
-    private double sendFrequency_Hz = 500.0; // 500Hz
+    private double sendFrequency_Hz = 500.0; 
     private volatile bool isRunning = false;
     private readonly object dataLock = new object();
     private volatile char controlModeCode = 'O';
