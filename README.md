@@ -110,6 +110,7 @@ Handles Unity scene updates and coordinate frame transformations for visualizati
   - Frame tracker serial
   - End-effector tracker serial
   - Center of mass tracker serial
+6. Open Preferred Vicon Software
 
 Testing Without Hardware
 For development and testing without the full LabVIEW motor control system:
@@ -124,6 +125,7 @@ This will display incoming motor commands for verification of communication prot
 - SteamVR: Latest version through Steam
 - OpenVR: Included with SteamVR installation
 - Vicon Unity Plugin 1.3 `.unitypackage`
+- Vicon System compatible with ViconDataStreamSDK 
 - Alglib: Included for quadratic programming solver ---> Plugins Folder
 
 ### Usage Notes
@@ -131,6 +133,7 @@ This will display incoming motor commands for verification of communication prot
 - Frame tracker position is captured once during initialization and used as reference
 - System requires SteamVR to be running and trackers connected before Unity execution
 - Motor indices must be configured before runtime - no dynamic motor discovery supported
+
 
 
 
