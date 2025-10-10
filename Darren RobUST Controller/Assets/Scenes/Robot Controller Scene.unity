@@ -328,7 +328,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   comTrackerSerial: LHR-7F9F2362
   endEffectorSerial: LHR-58D49961
-  frameTrackerSerial: LHR-2D89AB0C
+  frameTrackerSerial: LHR-974C0DAB
 --- !u!114 &748268986
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -394,7 +394,7 @@ MonoBehaviour:
   endEffectorVisual: {fileID: 292712651}
   frameTrackerVisual: {fileID: 717259972}
   visualizationCamera: {fileID: 1682237651}
-  cam_pos_robotFrame: {x: 5, y: 10, z: 5}
+  cam_pos_robotFrame: {x: 10, y: 10, z: 5}
 --- !u!114 &748268990
 MonoBehaviour:
   m_ObjectHideFlags: 0

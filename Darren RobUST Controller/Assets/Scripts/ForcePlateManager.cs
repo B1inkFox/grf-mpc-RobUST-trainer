@@ -29,6 +29,10 @@ public class ForcePlateManager : MonoBehaviour
     /// Called by RobotController in the correct dependency order.
     /// </summary>
     /// <returns>True if initialization succeeded, false otherwise</returns>
+    // Bottom Left [0.5385, 0.5793, -0.9520]
+    // Bottom Right [0.5234, 1.1350, -0.9463]
+    // Top Left [-0.3202, 0.5510, -0.9525]
+    // Top Right [-0.3341, 1.1077, -0.9458]
     public bool Initialize()
     {
         // Initialize the Vicon SDK
@@ -37,14 +41,14 @@ public class ForcePlateManager : MonoBehaviour
             Debug.LogError("Failed to initialize Vicon force plate connection.");
             return false;
         }
-        
+
         // Start the sampling thread
         isRunning = true;
         forcePlateThread = new Thread(ForcePlateSamplingLoop);
         forcePlateThread.IsBackground = true;
         forcePlateThread.Priority = System.Threading.ThreadPriority.AboveNormal;
         forcePlateThread.Start();
-        
+
         Debug.Log($"ForcePlateManager initialized successfully on port {serverPort}.");
         return true;
     }

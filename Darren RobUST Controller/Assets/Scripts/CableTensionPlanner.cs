@@ -106,14 +106,14 @@ public class CableTensionPlanner : MonoBehaviour
         alglib.minqpsetbc(qpState, tensionLower, tensionUpper);
 
         // Pre-allocate fixed pulley positions relative to robot frame tracker 
-        framePulleyPositions[0] = new Vector3(-.5f, 1.0f, 1.0f);   // Front-Right Top (Motor index 0)
-        framePulleyPositions[1] = new Vector3(-.5f, 0.0f, 1.0f);  // Front-Left Top (Motor index 1)
-        framePulleyPositions[2] = new Vector3(.5f, 0.0f, 1.0f); // Back-Left Top (Motor index 2)
-        framePulleyPositions[3] = new Vector3(.5f, 1.0f, 1.0f);  // Back-Right Top (Motor index 3)
-        framePulleyPositions[4] = new Vector3(-.5f, 1.0f, -1.0f);   // Front-Right Bottom (Motor index 4)
-        framePulleyPositions[5] = new Vector3(-.5f, 0.0f, -1.0f);  // Front-Left Bottom (Motor index 5)
-        framePulleyPositions[6] = new Vector3(.5f, 0.0f, -1.0f); // Back-Left Bottom (Motor index 6)
-        framePulleyPositions[7] = new Vector3(.5f, 1.0f, -1.0f);  // Back-Right Bottom (Motor index 7)
+        framePulleyPositions[0] = new Vector3(-0.8114f, 1.6556f, 0.9400f);   // Front-Right Top (Motor index 0) [-0.8114, 1.6556, 0.9400]
+        framePulleyPositions[1] = new Vector3(-0.8066f, 0.0084f, 0.8895f);  // Front-Left Top (Motor index 1) [-0.8066, 0.0084, 0.8895]
+        framePulleyPositions[2] = new Vector3(0.9827f, 0.0592f, 0.9126f); // Back-Left Top (Motor index 2) [0.9827, 0.0592, 0.9126]
+        framePulleyPositions[3] = new Vector3(0.9718f, 1.6551f, 0.9411f);  // Back-Right Top (Motor index 3) [0.9718, 1.6551, 0.9411]
+        framePulleyPositions[4] = new Vector3(-0.8084f, 1.6496f, -0.3060f);   // Front-Right Bottom (Motor index 4) [-0.8084, 1.6496, -0.3060]
+        framePulleyPositions[5] = new Vector3(-0.7667f, 0.0144f, -0.3243f);  // Front-Left Bottom (Motor index 5) [-0.7667, 0.0144, -0.3243]
+        framePulleyPositions[6] = new Vector3(0.9748f, 0.0681f, -0.5438f); // Back-Left Bottom (Motor index 6) [0.9748, 0.0681, -0.5438]
+        framePulleyPositions[7] = new Vector3(0.9498f, 1.6744f, -0.5409f);  // Back-Right Bottom (Motor index 7) [0.9498, 1.6744, -0.5409]
 
         // Pre-allocate local attachment points based on belt geometry relative to end-effector tracker
         float halfAP = chest_AP_distance / 2.0f;
