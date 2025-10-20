@@ -11,7 +11,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
 {
     [Header("Network Settings")]
     public string serverAddress = "127.0.0.1";
-    public int serverPort = 8052;
+    public int serverPort = 8053;
 
     [Header("Motor Mapping")]
     [Tooltip("The motor number corresponding to each cable tension. Order must match CableTensionPlanner output.")]

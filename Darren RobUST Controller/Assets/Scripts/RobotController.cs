@@ -111,6 +111,7 @@ public class RobotController : MonoBehaviour
         Debug.Log($"End Effector Position:\n" +
              $"[{eePose_robotFrame.m03:F4}, {eePose_robotFrame.m13:F4}, {eePose_robotFrame.m23:F4}]");
 
+       
         // Test call to CableTensionPlanner.CalculateTensions
         double[] tensions = tensionPlanner.CalculateTensions(
             rawEndEffectorData.PoseMatrix,
