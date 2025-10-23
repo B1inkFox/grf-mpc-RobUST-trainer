@@ -24,15 +24,13 @@ public class ForcePlateManager : MonoBehaviour
 
     private Client viconClient;
 
+    private ForcePlateCalibrator calib;
+        
     /// <summary>
     /// Initializes the force plate manager.
     /// Called by RobotController in the correct dependency order.
     /// </summary>
     /// <returns>True if initialization succeeded, false otherwise</returns>
-    // Bottom Left [0.5385, 0.5793, -0.9520]
-    // Bottom Right [0.5234, 1.1350, -0.9463]
-    // Top Left [-0.3202, 0.5510, -0.9525]
-    // Top Right [-0.3341, 1.1077, -0.9458]
     public bool Initialize()
     {
         // Initialize the Vicon SDK
@@ -50,6 +48,7 @@ public class ForcePlateManager : MonoBehaviour
         forcePlateThread.Start();
 
         Debug.Log($"ForcePlateManager initialized successfully on port {serverPort}.");
+        calib = new ForcePlateCalibrator();
         return true;
     }
     
@@ -104,12 +103,12 @@ public class ForcePlateManager : MonoBehaviour
             viconClient.GetFrame();
 
             // Process each force plate directly
-            for (uint i = 0; i < numForcePlates; i++)
+            for (int i = 0; i < numForcePlates; i++)
             {
                 // Get force in global coordinate system
-                Output_GetGlobalForceVector forceResult = viconClient.GetGlobalForceVector(i);
+                Output_GetGlobalForceVector forceResult = viconClient.GetGlobalForceVector((uint)i);
                 // Get center of pressure
-                Output_GetGlobalCentreOfPressure copResult = viconClient.GetGlobalCentreOfPressure(i);
+                Output_GetGlobalCentreOfPressure copResult = viconClient.GetGlobalCentreOfPressure((uint)i);
 
                 // Thread-safe update directly to the array
                 lock (dataLock)
@@ -136,7 +135,7 @@ public class ForcePlateManager : MonoBehaviour
     /// Gets the force plate data for a specific plate.
     /// Thread-safe access.
     /// </summary>
-    public ForcePlateData GetForcePlateData(int plateIndex = 0)
+    public ForcePlateData GetForcePlateData(int plateIndex = 0, bool in_global_frame = true)
     {
         lock (dataLock)
         {
@@ -145,10 +144,15 @@ public class ForcePlateManager : MonoBehaviour
                 Debug.LogWarning($"Invalid force plate index: {plateIndex}");
                 return new ForcePlateData(Vector3.zero, Vector3.zero);
             }
-            return new ForcePlateData(
+            ForcePlateData data = new ForcePlateData(
                 forcePlateDataArray[plateIndex].Force, 
                 forcePlateDataArray[plateIndex].CenterOfPressure
             );
+            if (in_global_frame)
+            {
+                data = TransformForcePlateData(data);
+            }
+            return data;
         }
     }
     
@@ -156,15 +160,36 @@ public class ForcePlateManager : MonoBehaviour
     /// Gets a copy of the force plate data array for all plates.
     /// Thread-safe access.
     /// </summary>
-    public ForcePlateData[] GetForcePlateData()
+    public ForcePlateData[] GetForcePlateData(bool in_global_frame = true)
     {
         ForcePlateData[] result = new ForcePlateData[numForcePlates];
         lock (dataLock)
         {
             Array.Copy(forcePlateDataArray, result, numForcePlates);
+            if (in_global_frame) {
+                for(int i = 0; i < numForcePlates; i++) {
+                    result[i] = TransformForcePlateData(result[i]);
+                }
+            }
         }
         return result;
     }    
+
+    /// <summary>
+    /// Transforms a ForcePlateData from the local vicon frame into the global robot frame
+    /// using the existing ForcePlateCalibrator `calib`.
+    /// </summary>
+    private ForcePlateData TransformForcePlateData(ForcePlateData data_local)
+    {
+        // Project the force (rotation only)
+        Vector3 force_global = calib.ProjectForce(data_local.Force);
+
+        // Project the center of pressure (mm → m, then apply rotation + translation)
+        Vector3 cop_global = calib.ProjectPosition(data_local.CenterOfPressure);
+
+        // Return as a new ForcePlateData object
+        return new ForcePlateData(force_global, cop_global);
+    }
     
     /// <summary>
     /// Clean up resources on application quit
