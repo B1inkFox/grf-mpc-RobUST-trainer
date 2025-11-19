@@ -113,6 +113,9 @@ AddOutputFilter chunkFilter
 		<Item Name="Load Cells" Type="Folder">
 			<Item Name="Read_Load_Cell_Tensions.vi" Type="VI" URL="../Read_Load_Cell_Tensions.vi"/>
 		</Item>
+		<Item Name="Utility" Type="Folder">
+			<Item Name="clamp_vals_array.vi" Type="VI" URL="../clamp_vals_array.vi"/>
+		</Item>
 		<Item Name="CL_control.vi" Type="VI" URL="../CL_control.vi"/>
 		<Item Name="OL_control.vi" Type="VI" URL="../OL_control.vi"/>
 		<Item Name="Main.vi" Type="VI" URL="../Main.vi"/>
