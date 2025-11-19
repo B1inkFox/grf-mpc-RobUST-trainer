@@ -1,6 +1,6 @@
 ﻿<?xml version='1.0' encoding='UTF-8'?>
 <Project Type="Project" LVVersion="24008000">
-	<Property Name="varPersistentID:{15B145E3-51FE-4E72-8F56-C86AD9E2D520}" Type="Ref">/NI-PXIe8880-03117F0A/PXI_Host_Shared_Vars.lvlib/Measured Tensions</Property>
+	<Property Name="varPersistentID:{00611030-CAAC-41C4-9549-466DE46B5AD8}" Type="Ref">/NI-PXIe8880-03117F0A/PXI_Host_Shared_Vars.lvlib/Tension_Telemetry</Property>
 	<Item Name="My Computer" Type="My Computer">
 		<Property Name="IOScan.Faults" Type="Str"></Property>
 		<Property Name="IOScan.NetVarPeriod" Type="UInt">100</Property>
@@ -21,18 +21,20 @@
 		<Property Name="server.vi.propertiesEnabled" Type="Bool">true</Property>
 		<Property Name="specify.custom.address" Type="Bool">false</Property>
 		<Item Name="Host_Panel.vi" Type="VI" URL="../Host_Panel.vi"/>
+		<Item Name="TensionChart.ctl" Type="VI" URL="../TensionChart.ctl"/>
 		<Item Name="Dependencies" Type="Dependencies"/>
 		<Item Name="Build Specifications" Type="Build"/>
 	</Item>
 	<Item Name="NI-PXIe8880-03117F0A" Type="RT PXI Chassis">
 		<Property Name="alias.name" Type="Str">NI-PXIe8880-03117F0A</Property>
-		<Property Name="alias.value" Type="Str">169.254.90.148</Property>
+		<Property Name="alias.value" Type="Str">10.0.0.62</Property>
 		<Property Name="CCSymbols" Type="Str">TARGET_TYPE,RT;OS,Linux;CPU,x64;</Property>
 		<Property Name="host.ResponsivenessCheckEnabled" Type="Bool">true</Property>
 		<Property Name="host.ResponsivenessCheckPingDelay" Type="UInt">5000</Property>
 		<Property Name="host.ResponsivenessCheckPingTimeout" Type="UInt">1000</Property>
 		<Property Name="host.TargetCPUID" Type="UInt">9</Property>
 		<Property Name="host.TargetOSID" Type="UInt">19</Property>
+		<Property Name="NI.SortType" Type="Int">3</Property>
 		<Property Name="target.cleanupVisa" Type="Bool">false</Property>
 		<Property Name="target.FPProtocolGlobals_ControlTimeLimit" Type="Int">300</Property>
 		<Property Name="target.getDefault-&gt;WebServer.Port" Type="Int">80</Property>
@@ -112,8 +114,8 @@ AddOutputFilter chunkFilter
 			<Item Name="Read_Load_Cell_Tensions.vi" Type="VI" URL="../Read_Load_Cell_Tensions.vi"/>
 		</Item>
 		<Item Name="CL_control.vi" Type="VI" URL="../CL_control.vi"/>
-		<Item Name="Main.vi" Type="VI" URL="../Main.vi"/>
 		<Item Name="OL_control.vi" Type="VI" URL="../OL_control.vi"/>
+		<Item Name="Main.vi" Type="VI" URL="../Main.vi"/>
 		<Item Name="PXI_Host_Shared_Vars.lvlib" Type="Library" URL="../PXI_Host_Shared_Vars.lvlib"/>
 		<Item Name="Dependencies" Type="Dependencies">
 			<Item Name="vi.lib" Type="Folder">
@@ -286,6 +288,9 @@ AddOutputFilter chunkFilter
 				<Item Name="sdCANutility4xU8toU32.vi" Type="VI" URL="/&lt;vilib&gt;/addons/Maxon Motor/EPOS2 CANopen/CAN/Utility/sdCANutility4xU8toU32.vi"/>
 				<Item Name="sdCANutilityI32to4xU8.vi" Type="VI" URL="/&lt;vilib&gt;/addons/Maxon Motor/EPOS2 CANopen/CAN/Utility/sdCANutilityI32to4xU8.vi"/>
 				<Item Name="sdCANutilityU32to4xU8.vi" Type="VI" URL="/&lt;vilib&gt;/addons/Maxon Motor/EPOS2 CANopen/CAN/Utility/sdCANutilityU32to4xU8.vi"/>
+				<Item Name="NI_PID__prctrl compat.lvlib" Type="Library" URL="/&lt;vilib&gt;/addons/control/pid/NI_PID__prctrl compat.lvlib"/>
+				<Item Name="NI_PID_pid.lvlib" Type="Library" URL="/&lt;vilib&gt;/addons/control/pid/NI_PID_pid.lvlib"/>
+				<Item Name="lvpidtkt.dll" Type="Document" URL="/&lt;vilib&gt;/Addons/control/pid/lvpidtkt.dll"/>
 			</Item>
 			<Item Name="lvanlys.dll" Type="Document" URL="/&lt;resource&gt;/lvanlys.dll"/>
 			<Item Name="nicanopenlvapi.dll" Type="Document" URL="nicanopenlvapi.dll">
