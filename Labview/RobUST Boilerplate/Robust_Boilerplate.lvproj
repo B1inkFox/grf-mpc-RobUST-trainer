@@ -115,10 +115,14 @@ AddOutputFilter chunkFilter
 		</Item>
 		<Item Name="Utility" Type="Folder">
 			<Item Name="clamp_vals_array.vi" Type="VI" URL="../clamp_vals_array.vi"/>
+			<Item Name="Goal_Tensions_FGV.vi" Type="VI" URL="../Goal_Tensions_FGV.vi"/>
+		</Item>
+		<Item Name="Controllers" Type="Folder">
+			<Item Name="Manual_Controller.vi" Type="VI" URL="../Manual_Controller.vi"/>
+			<Item Name="TCP_Main.vi" Type="VI" URL="../TCP_Main.vi"/>
 		</Item>
 		<Item Name="CL_control.vi" Type="VI" URL="../CL_control.vi"/>
 		<Item Name="OL_control.vi" Type="VI" URL="../OL_control.vi"/>
-		<Item Name="Main.vi" Type="VI" URL="../Main.vi"/>
 		<Item Name="PXI_Host_Shared_Vars.lvlib" Type="Library" URL="../PXI_Host_Shared_Vars.lvlib"/>
 		<Item Name="Dependencies" Type="Dependencies">
 			<Item Name="vi.lib" Type="Folder">
@@ -294,6 +298,10 @@ AddOutputFilter chunkFilter
 				<Item Name="NI_PID__prctrl compat.lvlib" Type="Library" URL="/&lt;vilib&gt;/addons/control/pid/NI_PID__prctrl compat.lvlib"/>
 				<Item Name="NI_PID_pid.lvlib" Type="Library" URL="/&lt;vilib&gt;/addons/control/pid/NI_PID_pid.lvlib"/>
 				<Item Name="lvpidtkt.dll" Type="Document" URL="/&lt;vilib&gt;/Addons/control/pid/lvpidtkt.dll"/>
+				<Item Name="TCP Listen List Operations.ctl" Type="VI" URL="/&lt;vilib&gt;/Utility/tcp.llb/TCP Listen List Operations.ctl"/>
+				<Item Name="TCP Listen Internal List.vi" Type="VI" URL="/&lt;vilib&gt;/Utility/tcp.llb/TCP Listen Internal List.vi"/>
+				<Item Name="Internecine Avoider.vi" Type="VI" URL="/&lt;vilib&gt;/Utility/tcp.llb/Internecine Avoider.vi"/>
+				<Item Name="TCP Listen.vi" Type="VI" URL="/&lt;vilib&gt;/Utility/tcp.llb/TCP Listen.vi"/>
 			</Item>
 			<Item Name="lvanlys.dll" Type="Document" URL="/&lt;resource&gt;/lvanlys.dll"/>
 			<Item Name="nicanopenlvapi.dll" Type="Document" URL="nicanopenlvapi.dll">
