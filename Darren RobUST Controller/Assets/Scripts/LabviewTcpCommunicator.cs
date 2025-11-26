@@ -168,8 +168,6 @@ public class LabviewTcpCommunicator : MonoBehaviour
     {
         var sb = new StringBuilder();
         sb.Append(controlModeCode);
-        sb.Append(',');
-        sb.Append(motors.Length);
         
         for (int i = 0; i < motors.Length; i++)
         {
@@ -177,8 +175,8 @@ public class LabviewTcpCommunicator : MonoBehaviour
         }
         
         // Use double precision for timestamp calculation
-        double timestampMs = (double)System.Diagnostics.Stopwatch.GetTimestamp() * 1000.0 / (double)System.Diagnostics.Stopwatch.Frequency;
-        sb.Append($",{timestampMs}\r\n");
+        // double timestampMs = (double)System.Diagnostics.Stopwatch.GetTimestamp() * 1000.0 / (double)System.Diagnostics.Stopwatch.Frequency;
+        // sb.Append($",{timestampMs}\r\n");
         return sb.ToString();
     }
 
