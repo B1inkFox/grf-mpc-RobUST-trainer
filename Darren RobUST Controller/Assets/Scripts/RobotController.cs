@@ -29,6 +29,7 @@ public class RobotController : MonoBehaviour
     [Tooltip("Enable or disable sending commands to LabVIEW.")]
     public bool isLabviewControlEnabled = true;
 
+    public BaseController controller;
 
     // Static frame reference captured at startup to prevent drift
     private readonly TrackerData robot_frame_tracker = new TrackerData();
@@ -90,6 +91,13 @@ public class RobotController : MonoBehaviour
         {
             tcpCommunicator.ConnectToServer();
         }
+
+        
+        // Initialize Controller Here
+        // Timestep resolution = 0.05 second, MPC prediction horizon = 10 timesteps
+        controller = new MPCController(0.05, 10);
+        
+        /* We need to initialize the controller here */
     }
 
     private void Update()
@@ -108,18 +116,18 @@ public class RobotController : MonoBehaviour
         //     $"[{eePose_robotFrame.m10:F4}, {eePose_robotFrame.m11:F4}, {eePose_robotFrame.m12:F4}, {eePose_robotFrame.m13:F4}]\n" +
         //     $"[{eePose_robotFrame.m20:F4}, {eePose_robotFrame.m21:F4}, {eePose_robotFrame.m22:F4}, {eePose_robotFrame.m23:F4}]\n" +
         //     $"[{eePose_robotFrame.m30:F4}, {eePose_robotFrame.m31:F4}, {eePose_robotFrame.m32:F4}, {eePose_robotFrame.m33:F4}]");
-        Debug.Log($"End Effector Position:\n" +
-             $"[{eePose_robotFrame.m03:F4}, {eePose_robotFrame.m13:F4}, {eePose_robotFrame.m23:F4}]");
 
-       
+        
+        //Here we parse the control effort that we obtained from the controller, to be implemented
+        ControllerOutput output = null;
+        
         // Test call to CableTensionPlanner.CalculateTensions
         double[] tensions = tensionPlanner.CalculateTensions(
             rawEndEffectorData.PoseMatrix,
-            new Vector3(0, 0, 60), // desiredForce (test)
-            Vector3.zero, // desiredTorque (zero for test)
+            output.comForce,
+            output.comTorque,
             robot_frame_tracker.PoseMatrix
         );
-
         // Send the calculated tensions to LabVIEW
         tcpCommunicator.UpdateTensionSetpoint(tensions);
     }
@@ -136,18 +144,6 @@ public class RobotController : MonoBehaviour
         Matrix4x4 framePose_inverse = robot_frame_tracker.PoseMatrix.inverse;
         Matrix4x4 relativePose = framePose_inverse * eePose;
         return relativePose;
-    }
-
-    /// <summary>
-    /// This is the placeholder for your high-level control logic.
-    /// It determines the force and torque to be applied by the cables.
-    /// </summary>
-    private (Vector3 force, Vector3 torque) CalculateDesiredWrench(Matrix4x4 comPose, Matrix4x4 endEffectorPose)
-    {
-        // --- FUTURE IMPLEMENTATION ---
-        // This is where we would implement logic like force fields, perturbations, etc.
-
-        return (Vector3.zero, Vector3.zero);
     }
 
     // Validates that all required module references are assigned in the Inspector.

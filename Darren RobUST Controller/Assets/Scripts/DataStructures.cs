@@ -36,3 +36,40 @@ public class ForcePlateData
         CenterOfPressure = centerOfPressure;
     }
 }
+
+
+[System.Serializable]
+public struct RobotState
+{
+    // COM state (from COM tracker, treated as COM up to constant bias)
+    public Vector3 comPosition;    // [m]
+    public Vector3 comVelocity;    // [m/s]
+    public Quaternion trunkOrientation;
+    public Vector3 totalGRF;       // sum of all foot forces [N]
+    public Vector3 globalCOP;      // effective CoP in robot frame [m]
+
+    public RobotState(Vector3 cp, Vector3 cv, Quaternion to, Vector3 grf, Vector3 cop)
+    {
+        comPosition = cp;
+        comVelocity = cv;
+        trunkOrientation = to;
+        totalGRF = grf;
+        globalCOP = cop;
+    }
+}
+
+[System.Serializable]
+public struct Hyperparameter
+{
+    public double mass;
+    public Vector3 Inertia;
+    public Vector3 InertiaCovariance;
+
+}
+
+[System.Serializable]
+public struct ControllerOutput
+{
+    public Vector3 comForce;
+    public Vector3 comTorque;
+}
