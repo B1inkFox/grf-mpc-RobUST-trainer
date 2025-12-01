@@ -118,7 +118,7 @@ AddOutputFilter chunkFilter
 			<Item Name="Goal_Tensions_FGV.vi" Type="VI" URL="../Goal_Tensions_FGV.vi"/>
 		</Item>
 		<Item Name="Controllers" Type="Folder">
-			<Item Name="Manual_Controller.vi" Type="VI" URL="../Manual_Controller.vi"/>
+			<Item Name="Manual_Control_Main.vi" Type="VI" URL="../Manual_Control_Main.vi"/>
 			<Item Name="TCP_Main.vi" Type="VI" URL="../TCP_Main.vi"/>
 		</Item>
 		<Item Name="CL_control.vi" Type="VI" URL="../CL_control.vi"/>
