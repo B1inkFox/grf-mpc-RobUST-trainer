@@ -31,7 +31,7 @@ public class RobotController : MonoBehaviour
 
     public BaseController controller;
 
-    // Static frame reference captured at startup to prevent drift
+    // Static frame reference captured only at startup to prevent drift
     private readonly TrackerData robot_frame_tracker = new TrackerData();
     // The vector representing the direction of gravity in the world frame.
     private static Vector3 gravity_vec = 9.81f * new Vector3(0, 0, -1);

@@ -10,12 +10,8 @@ using System.Threading;
 public class LabviewTcpCommunicator : MonoBehaviour
 {
     [Header("Network Settings")]
-    public string serverAddress = "127.0.0.1";
+    public string serverAddress = "10.0.0.62";
     public int serverPort = 8053;
-
-    [Header("Motor Mapping")]
-    [Tooltip("The motor number corresponding to each cable tension. Order must match CableTensionPlanner output.")]
-    public int[] motorNumbers = new int[] { -1, -1, -1, -1 }; // Default configuration
 
     // Network components
     private TcpClient tcpClient;
@@ -42,19 +38,12 @@ public class LabviewTcpCommunicator : MonoBehaviour
     /// </summary>
     /// <param name="numCables">Number of cables from the tension planner</param>
     /// <returns>True if initialization succeeded, false otherwise</returns>
-    public bool Initialize(int numCables)
+    public bool Initialize()
     {
-        if (motorNumbers == null || motorNumbers.Length != numCables)
-        {
-            Debug.LogError($"LabviewTcpCommunicator: Motor numbers array must have {numCables} elements to match cable count.", this);
-            return false;
-        }
-
         // Pre-allocate arrays based on cable count
-        tensions = new double[numCables];
-        sendTensions = new double[numCables];
+        tensions = new double[14];
+        sendTensions = new double[14];
         
-        Debug.Log($"TCP Communicator initialized for {numCables} cables with motors: [{string.Join(", ", motorNumbers)}]");
         return true;
     }
 
@@ -136,7 +125,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
                 Array.Copy(tensions, sendTensions, tensions.Length);
             }
             // Send data
-            string packet = FormatPacket(motorNumbers, sendTensions);
+            string packet = FormatPacket(sendTensions);
             byte[] data = Encoding.ASCII.GetBytes(packet);
             networkStream.Write(data, 0, data.Length);
 
@@ -164,14 +153,14 @@ public class LabviewTcpCommunicator : MonoBehaviour
     /// <summary>
     /// Formats the tension data into the LabVIEW protocol.
     /// </summary>
-    private string FormatPacket(int[] motors, double[] tensions)
+    private string FormatPacket(double[] tensions)
     {
         var sb = new StringBuilder();
         sb.Append(controlModeCode);
         
-        for (int i = 0; i < motors.Length; i++)
+        for (int i = 0; i < 14; i++)
         {
-            sb.Append($",{motors[i]},{tensions[i]:F6}");
+            sb.Append($",{tensions[i]:F6}");
         }
         
         // Use double precision for timestamp calculation
