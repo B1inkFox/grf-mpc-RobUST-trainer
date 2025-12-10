@@ -29,7 +29,7 @@ public class RobotController : MonoBehaviour
     [Tooltip("Enable or disable sending commands to LabVIEW.")]
     public bool isLabviewControlEnabled = true;
 
-    public BaseController controller;
+    public BaseController<Wrench> controller;
 
     // Static frame reference captured only at startup to prevent drift
     private readonly TrackerData robot_frame_tracker = new TrackerData();
@@ -64,7 +64,7 @@ public class RobotController : MonoBehaviour
             Debug.LogError("Failed to initialize ForcePlateManager.", this);
             // dont disable program if no force plates
         }
-        if (!tcpCommunicator.Initialize(tensionPlanner.matrixCols))
+        if (!tcpCommunicator.Initialize())
         {
             Debug.LogError("Failed to initialize LabviewTcpCommunicator.", this);
             enabled = false;
@@ -84,8 +84,6 @@ public class RobotController : MonoBehaviour
             return;
         }
 
-        Debug.Log("All robot modules initialized successfully.");
-
         // Start the TCP connection if enabled
         if (isLabviewControlEnabled)
         {
@@ -95,7 +93,7 @@ public class RobotController : MonoBehaviour
         
         // Initialize Controller Here
         // Timestep resolution = 0.05 second, MPC prediction horizon = 10 timesteps
-        controller = new MPCController(0.05, 10);
+        // controller = new MPCController(0.05, 10);
         
         /* We need to initialize the controller here */
     }
@@ -119,16 +117,19 @@ public class RobotController : MonoBehaviour
 
         
         //Here we parse the control effort that we obtained from the controller, to be implemented
-        ControllerOutput output = null;
+        Wrench controllerOutput = new Wrench { Force = Vector3.zero, Torque = Vector3.zero };
         
         // Test call to CableTensionPlanner.CalculateTensions
         double[] tensions = tensionPlanner.CalculateTensions(
             rawEndEffectorData.PoseMatrix,
-            output.comForce,
-            output.comTorque,
+            controllerOutput.Force,
+            controllerOutput.Torque,
             robot_frame_tracker.PoseMatrix
         );
+        Debug.Log($"Calculated Tensions: [{string.Join(", ", tensions)}]");
+        tensions = wrapTension(tensions);
         // Send the calculated tensions to LabVIEW
+        tcpCommunicator.SetClosedLoopControl();
         tcpCommunicator.UpdateTensionSetpoint(tensions);
     }
 
@@ -180,4 +181,28 @@ public class RobotController : MonoBehaviour
             Debug.Log($"Process priority set to {process.PriorityClass}, running on cores 0-7");
         }
     }
+
+    private double[] wrapTension(double[] inputTensions)
+    {
+        //assert(inputTensions.Length == 8);
+        double[] outputTensions = new double[14];
+        
+        outputTensions[0] = 0;
+        outputTensions[1] = inputTensions[6];
+        outputTensions[2] = 0;
+        outputTensions[3] = inputTensions[2];
+        outputTensions[4] = inputTensions[1];
+        outputTensions[5] = 0;
+        outputTensions[6] = inputTensions[5];
+        outputTensions[7] = inputTensions[4];
+        outputTensions[8] = 0;
+        outputTensions[9] = inputTensions[0];
+        outputTensions[10] = inputTensions[3];
+        outputTensions[11] = 0;
+        outputTensions[12] = inputTensions[7];
+        outputTensions[13] = 0;
+
+        return outputTensions;
+    }
+
 }

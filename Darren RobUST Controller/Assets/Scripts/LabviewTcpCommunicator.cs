@@ -162,7 +162,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
         {
             sb.Append($",{tensions[i]:F6}");
         }
-        
+        sb.Append("\r\n");
         // Use double precision for timestamp calculation
         // double timestampMs = (double)System.Diagnostics.Stopwatch.GetTimestamp() * 1000.0 / (double)System.Diagnostics.Stopwatch.Frequency;
         // sb.Append($",{timestampMs}\r\n");

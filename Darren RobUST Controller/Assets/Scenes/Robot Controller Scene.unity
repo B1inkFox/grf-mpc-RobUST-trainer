@@ -311,9 +311,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7629282ce52ba628e8fa4e5843826c26, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  serverAddress: 127.0.0.1
-  serverPort: 8052
-  motorNumbers: 0100000002000000030000000400000005000000060000000700000008000000
+  serverAddress: 10.0.0.62
+  serverPort: 8053
 --- !u!114 &748268985
 MonoBehaviour:
   m_ObjectHideFlags: 0

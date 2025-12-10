@@ -106,14 +106,14 @@ public class CableTensionPlanner : MonoBehaviour
         alglib.minqpsetbc(qpState, tensionLower, tensionUpper);
 
         // Pre-allocate fixed pulley positions relative to robot frame tracker 
-        framePulleyPositions[0] = new Vector3(-0.8114f, 1.6556f, 0.9400f);   // Front-Right Top (Motor index 0) [-0.8114, 1.6556, 0.9400]
-        framePulleyPositions[1] = new Vector3(-0.8066f, 0.0084f, 0.8895f);  // Front-Left Top (Motor index 1) [-0.8066, 0.0084, 0.8895]
-        framePulleyPositions[2] = new Vector3(0.9827f, 0.0592f, 0.9126f); // Back-Left Top (Motor index 2) [0.9827, 0.0592, 0.9126]
-        framePulleyPositions[3] = new Vector3(0.9718f, 1.6551f, 0.9411f);  // Back-Right Top (Motor index 3) [0.9718, 1.6551, 0.9411]
-        framePulleyPositions[4] = new Vector3(-0.8084f, 1.6496f, -0.3060f);   // Front-Right Bottom (Motor index 4) [-0.8084, 1.6496, -0.3060]
-        framePulleyPositions[5] = new Vector3(-0.7667f, 0.0144f, -0.3243f);  // Front-Left Bottom (Motor index 5) [-0.7667, 0.0144, -0.3243]
-        framePulleyPositions[6] = new Vector3(0.9748f, 0.0681f, -0.5438f); // Back-Left Bottom (Motor index 6) [0.9748, 0.0681, -0.5438]
-        framePulleyPositions[7] = new Vector3(0.9498f, 1.6744f, -0.5409f);  // Back-Right Bottom (Motor index 7) [0.9498, 1.6744, -0.5409]
+        framePulleyPositions[0] = new Vector3(-0.8114f, 1.6556f, 0.9400f);   // Front-Right Top (Motor number 10) [-0.8114, 1.6556, 0.9400]
+        framePulleyPositions[1] = new Vector3(-0.8066f, 0.0084f, 0.8895f);  // Front-Left Top (Motor number 5) [-0.8066, 0.0084, 0.8895]
+        framePulleyPositions[2] = new Vector3(0.9827f, 0.0592f, 0.9126f); // Back-Left Top (Motor number 4) [0.9827, 0.0592, 0.9126]
+        framePulleyPositions[3] = new Vector3(0.9718f, 1.6551f, 0.9411f);  // Back-Right Top (Motor number 11) [0.9718, 1.6551, 0.9411]
+        framePulleyPositions[4] = new Vector3(-0.8084f, 1.6496f, -0.3060f);   // Front-Right Bottom (Motor number 8) [-0.8084, 1.6496, -0.3060]
+        framePulleyPositions[5] = new Vector3(-0.7667f, 0.0144f, -0.3243f);  // Front-Left Bottom (Motor number 7) [-0.7667, 0.0144, -0.3243]
+        framePulleyPositions[6] = new Vector3(0.9748f, 0.0681f, -0.5438f); // Back-Left Bottom (Motor number 2) [0.9748, 0.0681, -0.5438]
+        framePulleyPositions[7] = new Vector3(0.9498f, 1.6744f, -0.5409f);  // Back-Right Bottom (Motor number 13) [0.9498, 1.6744, -0.5409]
 
         // Pre-allocate local attachment points based on belt geometry relative to end-effector tracker
         float halfAP = chest_AP_distance / 2.0f;
@@ -121,15 +121,15 @@ public class CableTensionPlanner : MonoBehaviour
         float ap_factor = (beltSize == BeltSize.Small) ? 0.7f : 0.85f;
         float ml_factor = (beltSize == BeltSize.Small) ? 0.8f : 0.95f;
 
-        localAttachmentPoints[0] = new Vector3(-halfML * ml_factor, -halfAP * ap_factor, 0);  // Front-Right (Motor index 0)
-        localAttachmentPoints[1] = new Vector3(halfML * ml_factor, -halfAP * ap_factor, 0); // Front-Left (Motor index 1)
-        localAttachmentPoints[2] = new Vector3(halfML * ml_factor, 0, 0);// Back-Left (Motor index 2)
-        localAttachmentPoints[3] = new Vector3(-halfML * ml_factor, 0, 0); // Back-Right (Motor index 3)
+        localAttachmentPoints[0] = new Vector3(-halfML * ml_factor, -halfAP * ap_factor, 0);  // Front-Right
+        localAttachmentPoints[1] = new Vector3(halfML * ml_factor, -halfAP * ap_factor, 0); // Front-Left
+        localAttachmentPoints[2] = new Vector3(halfML * ml_factor, 0, 0);// Back-Left 
+        localAttachmentPoints[3] = new Vector3(-halfML * ml_factor, 0, 0); // Back-Right 
         // repeat for bottom cables
-        localAttachmentPoints[4] = new Vector3(-halfML * ml_factor, -halfAP * ap_factor, 0);  // Front-Right (Motor index 4)
-        localAttachmentPoints[5] = new Vector3(halfML * ml_factor, -halfAP * ap_factor, 0); // Front-Left (Motor index 5)
-        localAttachmentPoints[6] = new Vector3(halfML * ml_factor, 0, 0);// Back-Left (Motor index 6)
-        localAttachmentPoints[7] = new Vector3(-halfML * ml_factor, 0, 0); // Back-Right (Motor index 7)
+        localAttachmentPoints[4] = new Vector3(-halfML * ml_factor, -halfAP * ap_factor, 0);  // Front-Right
+        localAttachmentPoints[5] = new Vector3(halfML * ml_factor, -halfAP * ap_factor, 0); // Front-Left
+        localAttachmentPoints[6] = new Vector3(halfML * ml_factor, 0, 0);// Back-Left
+        localAttachmentPoints[7] = new Vector3(-halfML * ml_factor, 0, 0); // Back-Right
 
         Debug.Log($"CableTensionPlanner initialized for {matrixCols} cables with {beltSize} belt size.");
         return true;
@@ -237,4 +237,5 @@ public class CableTensionPlanner : MonoBehaviour
         Array.Copy(framePulleyPositions, copy, framePulleyPositions.Length);
         return copy;
     }
+
 }

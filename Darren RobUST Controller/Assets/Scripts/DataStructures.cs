@@ -68,8 +68,18 @@ public struct Hyperparameter
 }
 
 [System.Serializable]
-public struct ControllerOutput
+public struct Wrench
 {
-    public Vector3 comForce;
-    public Vector3 comTorque;
+    public Vector3 Force;
+    public Vector3 Torque;
+}
+
+/// <summary>
+/// Abstract base class for any high-level controller that outputs cable tensions.
+/// Both MPCController and StabilityController derive from this.
+/// </summary>
+public abstract class BaseController<T>
+{
+    public abstract void Initialize();
+    public abstract T computeNextControl();
 }
