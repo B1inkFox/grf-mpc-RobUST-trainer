@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Mathematics; 
 using System;
 using System.Threading;
 using ViconDataStreamSDK.CSharp;
@@ -65,10 +66,6 @@ public class ForcePlateManager : MonoBehaviour
 
         // Allocate data arrays based on force plate count
         forcePlateDataArray = new ForcePlateData[numForcePlates];
-        for (int i = 0; i < numForcePlates; i++)
-        {
-            forcePlateDataArray[i] = new ForcePlateData(Vector3.zero, Vector3.zero);
-        }
 
         // Create the client directly
         viconClient = new Client();
@@ -114,12 +111,12 @@ public class ForcePlateManager : MonoBehaviour
                 lock (dataLock)
                 {
                     forcePlateDataArray[i] = new ForcePlateData(
-                        new Vector3(
+                        new double3(
                             (float)forceResult.ForceVector[0],
                             (float)forceResult.ForceVector[1],
                             (float)forceResult.ForceVector[2]
                         ),
-                        new Vector3(
+                        new double3(
                             (float)copResult.CentreOfPressure[0],
                             (float)copResult.CentreOfPressure[1],
                             (float)copResult.CentreOfPressure[2]
@@ -142,7 +139,7 @@ public class ForcePlateManager : MonoBehaviour
             if (plateIndex < 0 || plateIndex >= numForcePlates)
             {
                 Debug.LogWarning($"Invalid force plate index: {plateIndex}");
-                return new ForcePlateData(Vector3.zero, Vector3.zero);
+                return new ForcePlateData();
             }
             ForcePlateData data = new ForcePlateData(
                 forcePlateDataArray[plateIndex].Force, 
@@ -184,10 +181,10 @@ public class ForcePlateManager : MonoBehaviour
     private ForcePlateData TransformForcePlateData(ForcePlateData data_local)
     {
         // Project the force (rotation only)
-        Vector3 force_global = calib.ProjectForce(data_local.Force);
+        double3 force_global = calib.ProjectForce(data_local.Force);
 
         // Project the center of pressure (mm → m, then apply rotation + translation)
-        Vector3 cop_global = calib.ProjectPosition(data_local.CenterOfPressure);
+        double3 cop_global = calib.ProjectPosition(data_local.CenterOfPressure);
 
         // Return as a new ForcePlateData object
         return new ForcePlateData(force_global, cop_global);
