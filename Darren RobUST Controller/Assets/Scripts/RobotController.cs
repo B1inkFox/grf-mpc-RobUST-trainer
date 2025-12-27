@@ -38,7 +38,6 @@ public class RobotController : MonoBehaviour
 
     private void Start()
     {
-        SetProcessCoresAndPriority();
         if (!ValidateModules())
         {
             enabled = false; // Disable this script if modules are missing
@@ -90,11 +89,11 @@ public class RobotController : MonoBehaviour
             tcpCommunicator.ConnectToServer();
         }
 
-        
+
         // Initialize Controller Here
         // Timestep resolution = 0.05 second, MPC prediction horizon = 10 timesteps
         // controller = new MPCController(0.05, 10);
-        
+
         /* We need to initialize the controller here */
     }
 
@@ -115,10 +114,10 @@ public class RobotController : MonoBehaviour
         //     $"[{eePose_robotFrame.m20:F4}, {eePose_robotFrame.m21:F4}, {eePose_robotFrame.m22:F4}, {eePose_robotFrame.m23:F4}]\n" +
         //     $"[{eePose_robotFrame.m30:F4}, {eePose_robotFrame.m31:F4}, {eePose_robotFrame.m32:F4}, {eePose_robotFrame.m33:F4}]");
 
-        
+
         //Here we parse the control effort that we obtained from the controller, to be implemented
         Wrench controllerOutput = new Wrench { Force = Vector3.zero, Torque = Vector3.zero };
-        
+
         // Test call to CableTensionPlanner.CalculateTensions
         double[] tensions = tensionPlanner.CalculateTensions(
             rawEndEffectorData.PoseMatrix,
@@ -168,40 +167,27 @@ public class RobotController : MonoBehaviour
         tcpCommunicator?.Disconnect();
     }
 
-    private void SetProcessCoresAndPriority()
-    {
-        using (System.Diagnostics.Process process = System.Diagnostics.Process.GetCurrentProcess())
-        {
-            // Set to high priority but not realtime to avoid system lockups
-            process.PriorityClass = System.Diagnostics.ProcessPriorityClass.High;
-
-            // Restrict to first 8 cores (P-cores on i9-13900K)
-            // 0xFF = 255 = 11111111 in binary
-            process.ProcessorAffinity = new IntPtr(0xFF);
-            Debug.Log($"Process priority set to {process.PriorityClass}, running on cores 0-7");
-        }
-    }
 
     private double[] wrapTension(double[] inputTensions)
     {
         //assert(inputTensions.Length == 8);
-        double[] outputTensions = new double[14];
-        
-        outputTensions[0] = 0;
-        outputTensions[1] = inputTensions[6];
-        outputTensions[2] = 0;
-        outputTensions[3] = inputTensions[2];
-        outputTensions[4] = inputTensions[1];
-        outputTensions[5] = 0;
-        outputTensions[6] = inputTensions[5];
-        outputTensions[7] = inputTensions[4];
-        outputTensions[8] = 0;
-        outputTensions[9] = inputTensions[0];
-        outputTensions[10] = inputTensions[3];
-        outputTensions[11] = 0;
-        outputTensions[12] = inputTensions[7];
-        outputTensions[13] = 0;
-
+        double[] outputTensions =
+        [
+            0,
+            inputTensions[6],
+            0,
+            inputTensions[2],
+            inputTensions[1],
+            0,
+            inputTensions[5],
+            inputTensions[4],
+            0,
+            inputTensions[0],
+            inputTensions[3],
+            0,
+            inputTensions[7],
+            0,
+        ];
         return outputTensions;
     }
 

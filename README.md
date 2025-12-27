@@ -34,7 +34,7 @@ The framework employs three main driver scripts (`LabviewTcpCommunicator`, `Trac
 
 Manages communication with the low-level motor controller running on a PXIe system:
 
-- **Frequency**: 1 kHz TCP transmission
+- **Frequency**: 500 Hz TCP transmission
 - **Configuration**: Motor indices set during initialization
 - **Interface**: `UpdateTensionSetpoint(double[] setpoints)` for real-time updates
 - **Protocol**: Sends motor index and tension setpoint pairs via TCP
