@@ -14,9 +14,9 @@ public struct TrackerData
     /// </summary>
     public Matrix4x4 PoseMatrix;
 
-    public TrackerData()
+    public TrackerData(Matrix4x4 poseMatrix)
     {
-        PoseMatrix = Matrix4x4.identity;
+        PoseMatrix = poseMatrix;
     }
 }
 

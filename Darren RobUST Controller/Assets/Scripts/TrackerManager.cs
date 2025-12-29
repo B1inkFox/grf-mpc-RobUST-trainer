@@ -31,9 +31,9 @@ public class TrackerManager : MonoBehaviour
 
     // Thread-safe data storage
     private readonly object dataLock = new object();
-    private readonly TrackerData comTrackerData = new TrackerData();
-    private readonly TrackerData endEffectorData = new TrackerData();
-    private readonly TrackerData frameTrackerData = new TrackerData();
+    private TrackerData comTrackerData = new TrackerData();
+    private TrackerData endEffectorData = new TrackerData();
+    private TrackerData frameTrackerData = new TrackerData();
 
     // High-frequency update thread
     private Thread trackingThread;

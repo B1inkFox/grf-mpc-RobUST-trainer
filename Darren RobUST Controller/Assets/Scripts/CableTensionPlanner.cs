@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Mathematics;
 using System;
 
 /// <summary>
@@ -140,10 +141,9 @@ public class CableTensionPlanner : MonoBehaviour
     /// All calculations are performed in the RIGHT-HANDED coordinate system.
     /// </summary>
     /// <param name="endEffectorPose">The 4x4 pose matrix of the end-effector in the world coordinate system.</param>
-    /// <param name="desiredForce">The desired force to be applied by the cables.</param>
-    /// <param name="desiredTorque">The desired torque to be applied by the cables.</param>
+    /// <param name="desiredWrench">The desired wrench (force and torque) to be applied by the cables.</param>
     /// <param name="robotFramePose">The transformation matrix of the frame-mounted vive tracker</param>
-    public double[] CalculateTensions(Matrix4x4 endEffectorPose, Vector3 desiredForce, Vector3 desiredTorque, Matrix4x4 robotFramePose)
+    public double[] CalculateTensions(Matrix4x4 endEffectorPose, Wrench desiredWrench, Matrix4x4 robotFramePose)
     {
         // Build Structure Matrix 
         for (int i = 0; i < matrixCols; i++)
@@ -176,6 +176,8 @@ public class CableTensionPlanner : MonoBehaviour
             sMatrix[5, i] = torqueComponent.z;
         }
 
+        double3 desiredForce = desiredWrench.Force;
+        double3 desiredTorque = desiredWrench.Torque;
         // --- 2. Update Constraint Values (2-sided with epsilon tolerance) ---
         lowerWrenchBounds[0] = desiredForce.x - forceEpsilon;
         upperWrenchBounds[0] = desiredForce.x + forceEpsilon;
@@ -205,7 +207,7 @@ public class CableTensionPlanner : MonoBehaviour
         if (report.terminationtype < 0)
         {
             Debug.LogWarning($"QP solver failed: {report.terminationtype}");
-            return new double[matrixCols];
+            return previousSolution; // return last known good solution
         }
 
         // Debug.Log("Computed tensions: [" + string.Join(", ", System.Array.ConvertAll(tensions, t => t.ToString("F3"))) + "]");
@@ -231,11 +233,9 @@ public class CableTensionPlanner : MonoBehaviour
     /// Returns a copy of the fixed pulley positions in the RIGHT-HANDED robot frame
     /// (positions are relative to the frame tracker pose).
     /// </summary>
-    public Vector3[] GetPulleyPositionsInRobotFrame()
+    public ReadOnlySpan<Vector3> GetPulleyPositionsInRobotFrame()
     {
-        var copy = new Vector3[framePulleyPositions.Length];
-        Array.Copy(framePulleyPositions, copy, framePulleyPositions.Length);
-        return copy;
+        return new ReadOnlySpan<Vector3>(framePulleyPositions);;
     }
 
 }

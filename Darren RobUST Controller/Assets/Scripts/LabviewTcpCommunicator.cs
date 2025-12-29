@@ -1,11 +1,16 @@
 using UnityEngine;
 using System;
 using System.Net.Sockets;
-using System.Text;
 using System.Threading;
+using System.Security.AccessControl;
+using System.ComponentModel;
+using System.Data.SqlTypes;
+using System.Diagnostics;
+using System.Drawing;
 
 /// <summary>
 /// Handles threaded TCP communication with LabVIEW, continuously sending the latest tension data.
+/// Optimized for Zero-Allocation and "Soft" Real-Time on Windows.
 /// </summary>
 public class LabviewTcpCommunicator : MonoBehaviour
 {
@@ -27,35 +32,40 @@ public class LabviewTcpCommunicator : MonoBehaviour
     // Current data to send - pre-allocated during initialization
     private double[] tensions;
 
+    // --- NEW: Zero-Allocation Buffers ---
+    private double[] sendTensions; // Thread-local copy of data
+    private byte[] sendBuffer;     // Raw bytes to send to TCP
+    private char[] formatBuffer;   // Temp buffer for double->string conversion
+
     public bool IsConnected { get; private set; } = false;
-
-    // Cache for send thread to avoid allocations (only tensions need copying)
-    private double[] sendTensions;
-
     /// <summary>
     /// Initializes the TCP communicator with the cable configuration.
     /// Called by RobotController in the correct dependency order.
     /// </summary>
-    /// <param name="numCables">Number of cables from the tension planner</param>
-    /// <returns>True if initialization succeeded, false otherwise</returns>
     public bool Initialize()
     {
         // Pre-allocate arrays based on cable count
         tensions = new double[14];
         sendTensions = new double[14];
+
+        // NEW: Allocate buffers once. 
+        // Size calc: 1 byte (Mode) + 14 * (1 comma + ~9 chars) + 2 newline = ~150 bytes. 
+        // We give 512 for safety.
+        sendBuffer = new byte[512];
+        formatBuffer = new char[32]; // Enough for one double "0.123456"
         
         return true;
     }
 
     /// <summary>
-    /// Updates only the tension values (zero-allocation, zero-check real-time performance).
+    /// Universal update method (zero heap allocation). Accepts standard arrays, stackalloc spans, or list spans.
     /// </summary>
-    public void UpdateTensionSetpoint(double[] newTensions)
+    public void UpdateTensionSetpoint(ReadOnlySpan<double> newTensions)
     {
-        // No checks - arrays are guaranteed to be the right size at startup
         lock (dataLock)
         {
-            Array.Copy(newTensions, tensions, tensions.Length);
+            // Note: 'tensions' array is implicitly converted to a Span<double> here.
+            newTensions.CopyTo(tensions);
         }
     }
 
@@ -89,7 +99,8 @@ public class LabviewTcpCommunicator : MonoBehaviour
             IsConnected = true;
             isRunning = true;
             sendThread = new Thread(SendLoop) { IsBackground = true };
-            sendThread.Priority = System.Threading.ThreadPriority.Highest;
+            // Crucial: This allows us to bully other threads, but we still need the while loop below
+            sendThread.Priority = System.Threading.ThreadPriority.Highest; 
             sendThread.Start();
             
             UnityEngine.Debug.Log("Connected to LabVIEW server.");
@@ -101,7 +112,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
     }
 
     /// <summary>
-    /// Background thread that continuously sends data at precise 1kHz.
+    /// Background thread that continuously sends data at precise 500Hz.
     /// </summary>
     private void SendLoop()
     {
@@ -112,72 +123,98 @@ public class LabviewTcpCommunicator : MonoBehaviour
             return;
         }
 
-        // Use double precision and proper rounding to avoid truncation errors
-        double exactIntervalTicks = (double)System.Diagnostics.Stopwatch.Frequency / sendFrequency_Hz;
-        long targetIntervalTicks = (long)Math.Round(exactIntervalTicks);
-        long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + targetIntervalTicks;
+        // Timing constants
+        double frequency = System.Diagnostics.Stopwatch.Frequency;
+        long intervalTicks = (long)(frequency / sendFrequency_Hz);
+        long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
         
         while (isRunning)
         {
+            while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime)
+            {
+                // BURN cycles to hold the core.
+                // We avoid Thread.SpinWait() here to prevent OS yielding.
+            }
+
             // Get thread-safe copy of tension data
             lock (dataLock)
             {
                 Array.Copy(tensions, sendTensions, tensions.Length);
             }
-            // Send data
-            string packet = FormatPacket(sendTensions);
-            byte[] data = Encoding.ASCII.GetBytes(packet);
-            networkStream.Write(data, 0, data.Length);
 
-            // Precise timing: wait until next target time
-            long timeUntilNext = nextTargetTime - System.Diagnostics.Stopwatch.GetTimestamp();
-            double sleepMs = (double)timeUntilNext * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-            
-            if (sleepMs > 0.1)
-            { // Use SpinWait for sub-millisecond precision (0.1-1.0ms range)
-                SpinWait.SpinUntil(() => System.Diagnostics.Stopwatch.GetTimestamp() >= nextTargetTime);
-            } // else: For sleepMs <= 0.1, just continue
-
-            // Advance to next target time
-            nextTargetTime += targetIntervalTicks;
-            // Drift compensation: if we're behind, reset to maintain frequency
-            long currentTime = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (nextTargetTime <= currentTime)
+            int bytesToSend = FillPacketBuffer(sendTensions, sendBuffer);
+            try 
             {
-                // We're behind - skip ahead to maintain frequency
-                nextTargetTime = currentTime + targetIntervalTicks;
+                networkStream.Write(sendBuffer, 0, bytesToSend);
+            }
+            catch (Exception) 
+            {
+                isRunning = false; // Stop if socket dies
+                break;
+            }
+
+            // TIMING ADVANCE & DRIFT CORRECTION
+            nextTargetTime += intervalTicks;
+
+            // If we are late (processing took > 2ms), reset the pacer
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (now > nextTargetTime)
+            {
+                nextTargetTime = now + intervalTicks;
             }
         }
     }
 
     /// <summary>
-    /// Formats the tension data into the LabVIEW protocol.
+    /// Fills the byte array directly with ASCII data.
+    /// Returns the number of bytes written.
+    /// Allocates ZERO memory (no new Strings, no new Arrays).
     /// </summary>
-    private string FormatPacket(double[] tensions)
+    private int FillPacketBuffer(double[] values, byte[] buffer)
     {
-        var sb = new StringBuilder();
-        sb.Append(controlModeCode);
-        
-        for (int i = 0; i < 14; i++)
+        int pos = 0;
+
+        // A. Write Control Mode
+        buffer[pos++] = (byte)controlModeCode;
+
+        // B. Write Tensions
+        for (int i = 0; i < values.Length; i++)
         {
-            sb.Append($",{tensions[i]:F6}");
+            buffer[pos++] = (byte)',';
+
+            // ZERO-ALLOC NUMBER FORMATTING
+            // TryFormat writes the number into 'formatBuffer' (char[]) without creating a String.
+            // Requirement: Unity Project Settings > Player > Api Compatibility Level = .NET Standard 2.1
+            if (values[i].TryFormat(formatBuffer, out int charsWritten, "F6"))
+            {
+                // Manually copy chars to bytes (ASCII)
+                for (int k = 0; k < charsWritten; k++)
+                {
+                    buffer[pos++] = (byte)formatBuffer[k];
+                }
+            }
+            else
+            {
+                // Fallback (Should ideally never happen with a large enough formatBuffer)
+                buffer[pos++] = (byte)'0';
+            }
         }
-        sb.Append("\r\n");
-        // Use double precision for timestamp calculation
-        // double timestampMs = (double)System.Diagnostics.Stopwatch.GetTimestamp() * 1000.0 / (double)System.Diagnostics.Stopwatch.Frequency;
-        // sb.Append($",{timestampMs}\r\n");
-        return sb.ToString();
+
+        // C. Write Newline
+        buffer[pos++] = (byte)'\r';
+        buffer[pos++] = (byte)'\n';
+
+        return pos;
     }
 
-    /// <summary>
-    /// Manually disconnect from the server and clean up resources.
-    /// </summary>
     public void Disconnect()
     {
         if (!IsConnected) return;
         
         isRunning = false;
-        sendThread?.Join(500);
+        // Wait a bit for the loop to finish its current spin
+        sendThread?.Join(100); 
+        
         networkStream?.Close();
         tcpClient?.Close();
         IsConnected = false;

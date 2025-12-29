@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Mathematics;
 
 /// <summary>
 /// Calibrates a rectangular plate's local frame O1 to global frame O0 via
@@ -105,17 +106,19 @@ public class ForcePlateCalibrator
     /// <summary>
     /// Project a local point (e.g., CoP) from O1 (in millimeters) to O0 (in meters).
     /// </summary>
-    public Vector3 ProjectPosition(Vector3 pO1_mm)
-    {
-        return T_point.MultiplyPoint3x4(pO1_mm);
+    public double3 ProjectPosition(Vector3 pO1_mm)
+    {   
+        Vector3 result = T_point.MultiplyPoint3x4(pO1_mm);
+        return new double3(result.x, result.y, result.z);
     }
 
     /// <summary>
     /// Project a local vector (e.g., Force) from O1 to O0 (rotation only).
     /// </summary>
-    public Vector3 ProjectForce(Vector3 fO1)
+    public double3 ProjectForce(Vector3 fO1)
     {
-        return R_only.MultiplyVector(fO1);
+        Vector3 result = R_only.MultiplyVector(fO1);
+        return new double3(result.x, result.y, result.z);
     }
 
     // ----------------- Helpers -----------------

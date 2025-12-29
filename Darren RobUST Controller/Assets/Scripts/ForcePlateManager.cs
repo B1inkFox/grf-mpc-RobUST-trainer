@@ -181,10 +181,12 @@ public class ForcePlateManager : MonoBehaviour
     private ForcePlateData TransformForcePlateData(ForcePlateData data_local)
     {
         // Project the force (rotation only)
-        double3 force_global = calib.ProjectForce(data_local.Force);
+        Vector3 force_vector3 = (float3)data_local.Force; 
+        double3 force_global = calib.ProjectForce(force_vector3);
 
         // Project the center of pressure (mm → m, then apply rotation + translation)
-        double3 cop_global = calib.ProjectPosition(data_local.CenterOfPressure);
+        Vector3 cop_vector3 = (float3)data_local.CenterOfPressure;
+        double3 cop_global = calib.ProjectPosition(cop_vector3);
 
         // Return as a new ForcePlateData object
         return new ForcePlateData(force_global, cop_global);

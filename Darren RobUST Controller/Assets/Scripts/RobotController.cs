@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.Mathematics;
 using System;
 
 /// <summary>
@@ -32,7 +33,7 @@ public class RobotController : MonoBehaviour
     public BaseController<Wrench> controller;
 
     // Static frame reference captured only at startup to prevent drift
-    private readonly TrackerData robot_frame_tracker = new TrackerData();
+    private TrackerData robot_frame_tracker;
     // The vector representing the direction of gravity in the world frame.
     private static Vector3 gravity_vec = 9.81f * new Vector3(0, 0, -1);
 
@@ -44,8 +45,6 @@ public class RobotController : MonoBehaviour
             return;
         }
 
-        // Initialize all modules. Since we are using a pure Vive-based coordinate system,
-        // there is no complex calibration sequence needed at startup.
         if (!trackerManager.Initialize())
         {
             Debug.LogError("Failed to initialize TrackerManager.", this);
@@ -75,7 +74,7 @@ public class RobotController : MonoBehaviour
         robot_frame_tracker.PoseMatrix = trackerManager.GetFrameTrackerData().PoseMatrix;
 
         // Initialize visualizer now that frame pose is available
-        Vector3[] pulleyPositions = tensionPlanner.GetPulleyPositionsInRobotFrame();
+        ReadOnlySpan<Vector3> pulleyPositions = tensionPlanner.GetPulleyPositionsInRobotFrame();
         if (!visualizer.Initialize(robot_frame_tracker.PoseMatrix, pulleyPositions))
         {
             Debug.LogError("Failed to initialize RobotVisualizer.", this);
@@ -93,7 +92,6 @@ public class RobotController : MonoBehaviour
         // Initialize Controller Here
         // Timestep resolution = 0.05 second, MPC prediction horizon = 10 timesteps
         // controller = new MPCController(0.05, 10);
-
         /* We need to initialize the controller here */
     }
 
@@ -116,20 +114,20 @@ public class RobotController : MonoBehaviour
 
 
         //Here we parse the control effort that we obtained from the controller, to be implemented
-        Wrench controllerOutput = new Wrench { Force = Vector3.zero, Torque = Vector3.zero };
+        Wrench controllerOutput = new Wrench { Force = double3.zero, Torque = double3.zero };
 
-        // Test call to CableTensionPlanner.CalculateTensions
-        double[] tensions = tensionPlanner.CalculateTensions(
+        // Remember: 'solverResult' points to an array managed inside CableTensionPlanner
+        double[] solverResult = tensionPlanner.CalculateTensions(
             rawEndEffectorData.PoseMatrix,
-            controllerOutput.Force,
-            controllerOutput.Torque,
+            controllerOutput,
             robot_frame_tracker.PoseMatrix
         );
-        Debug.Log($"Calculated Tensions: [{string.Join(", ", tensions)}]");
-        tensions = wrapTension(tensions);
+
+        Span<double> motor_command = stackalloc double[14];
+        MapTensionsToMotors(solverResult, motor_command);
         // Send the calculated tensions to LabVIEW
         tcpCommunicator.SetClosedLoopControl();
-        tcpCommunicator.UpdateTensionSetpoint(tensions);
+        tcpCommunicator.UpdateTensionSetpoint(motor_command);
     }
 
     /// <summary>
@@ -168,27 +166,29 @@ public class RobotController : MonoBehaviour
     }
 
 
-    private double[] wrapTension(double[] inputTensions)
+    /// <summary>
+    /// Maps the 8-DOF solver tensions to the 14-DOF motor driver array.
+    /// Zero allocations.
+    /// </summary>
+    // Change return type to void. Pass the destination 'output' as an argument.
+    private void MapTensionsToMotors(double[] solverResult, Span<double> output)
     {
-        //assert(inputTensions.Length == 8);
-        double[] outputTensions =
-        [
-            0,
-            inputTensions[6],
-            0,
-            inputTensions[2],
-            inputTensions[1],
-            0,
-            inputTensions[5],
-            inputTensions[4],
-            0,
-            inputTensions[0],
-            inputTensions[3],
-            0,
-            inputTensions[7],
-            0,
-        ];
-        return outputTensions;
+        // No allocations here. Just direct memory writing.
+        output[0] = 0;
+        output[1] = solverResult[6];
+        output[2] = 0;
+        output[3] = solverResult[2];
+        output[4] = solverResult[1];
+        output[5] = 0;
+        output[6] = solverResult[5];
+        output[7] = solverResult[4];
+        output[8] = 0;
+        output[9] = solverResult[0];
+        output[10] = solverResult[3];
+        output[11] = 0;
+        output[12] = solverResult[7];
+        output[13] = 0;
     }
+    
 
 }

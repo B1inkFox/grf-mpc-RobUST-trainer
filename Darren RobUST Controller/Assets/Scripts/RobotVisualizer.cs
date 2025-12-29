@@ -1,5 +1,5 @@
 using UnityEngine;
-
+using System;
 /// <summary>
 /// Handles all visualization elements for the robot system that already exist:
 /// tracker visuals (CoM, End-Effector, Frame) and the visualization camera.
@@ -42,7 +42,7 @@ public class RobotVisualizer : MonoBehaviour
     /// </summary>
     /// <param name="framePoseMatrix">Static frame pose in robot (RH) coordinates.</param>
     /// <param name="pulleyPositionsRobotFrame">Pulley points relative to the frame tracker, in RH robot frame.</param>
-    public bool Initialize(Matrix4x4 framePoseMatrix, Vector3[] pulleyPositionsRobotFrame)
+    public bool Initialize(Matrix4x4 framePoseMatrix, ReadOnlySpan<Vector3> pulleyPositionsRobotFrame)
     {
         // Validate required references
         bool ok = true;
