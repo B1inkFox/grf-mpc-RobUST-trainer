@@ -35,7 +35,7 @@ public class RobotController : MonoBehaviour
     // Static frame reference captured only at startup to prevent drift
     private TrackerData robot_frame_tracker;
     // The vector representing the direction of gravity in the world frame.
-    private static Vector3 gravity_vec = 9.81f * new Vector3(0, 0, -1);
+    private static double3 gravity_vec = 9.81f * new double3(0, 0, -1);
 
     private void Start()
     {
@@ -87,7 +87,6 @@ public class RobotController : MonoBehaviour
         {
             tcpCommunicator.ConnectToServer();
         }
-
 
         // Initialize Controller Here
         // Timestep resolution = 0.05 second, MPC prediction horizon = 10 timesteps

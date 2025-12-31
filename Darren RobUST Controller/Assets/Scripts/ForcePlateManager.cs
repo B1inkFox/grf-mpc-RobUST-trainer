@@ -155,7 +155,7 @@ public class ForcePlateManager : MonoBehaviour
     
     /// <summary>
     /// Gets a copy of the force plate data array for all plates. 
-    /// This really shouldnt be used often as it allocates memory
+    /// This really shouldnt be used often(ever) as it allocates memory
     /// which requires the garbage collector to clean up.
     /// Thread-safe access.
     /// </summary>

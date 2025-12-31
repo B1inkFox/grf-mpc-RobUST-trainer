@@ -78,7 +78,6 @@ public class RobotVisualizer : MonoBehaviour
             var col = sphere.GetComponent<Collider>();
             if (col != null) Destroy(col);
         }
-        
 
         return true;
     }
