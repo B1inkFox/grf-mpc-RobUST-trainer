@@ -1,6 +1,7 @@
 using UnityEngine;
 using Unity.Mathematics;
 using System;
+using System.Threading;
 
 /// <summary>
 /// Main controller for the cable-driven robot.
@@ -36,12 +37,15 @@ public class RobotController : MonoBehaviour
     private TrackerData robot_frame_tracker;
     // The vector representing the direction of gravity in the world frame.
     private static double3 gravity_vec = 9.81f * new double3(0, 0, -1);
+    private Thread controllerThread;
+    private volatile bool isRunning = false;
+
 
     private void Start()
     {
         if (!ValidateModules())
         {
-            enabled = false; // Disable this script if modules are missing
+            enabled = false; // Disable this script if modules are missing from inspector
             return;
         }
 
@@ -51,6 +55,7 @@ public class RobotController : MonoBehaviour
             enabled = false;
             return;
         }
+
         if (!tensionPlanner.Initialize())
         {
             Debug.LogError("Failed to initialize CableTensionPlanner.", this);
@@ -70,7 +75,7 @@ public class RobotController : MonoBehaviour
         }
 
         // Capture static frame reference to prevent drift during operation
-        System.Threading.Thread.Sleep(100); // Brief pause for tracking stability
+        Thread.Sleep(100); // Brief pause for tracking stability
         trackerManager.GetFrameTrackerData(out robot_frame_tracker);
 
         // Initialize visualizer now that frame pose is available
@@ -92,42 +97,72 @@ public class RobotController : MonoBehaviour
         // Timestep resolution = 0.05 second, MPC prediction horizon = 10 timesteps
         // controller = new MPCController(0.05, 10);
         /* We need to initialize the controller here */
+
+        controllerThread = new Thread(controlLoop);
+        controllerThread.IsBackground = true;
+        controllerThread.Priority = System.Threading.ThreadPriority.AboveNormal;
+        isRunning = true;
+        controllerThread.Start();
     }
 
-    private void Update()
+    /// <summary>
+    ///  This control loop is the main "driver" of a `Controller` instance. 
+    ///  It needs to grab the latest tracker data, update visuals, compute cable tensions, and send commands to LabVIEW.
+    ///  a `Controller` functions more like a `Control Policy/Solver` here, with RobotController managing the data flow.
+    /// </summary>
+    private void controlLoop()
     {
-        // 1. Get the latest raw tracker data (in the arbitrary, RIGHT-HANDED OpenVR/Vive coordinate system).
         TrackerData rawComData, rawEndEffectorData;
-        trackerManager.GetCoMTrackerData(out rawComData);
-        trackerManager.GetEndEffectorTrackerData(out rawEndEffectorData);
-
-        // 2. Update visuals (delegated; safe because startup validation guarantees references)
-        visualizer.UpdateTrackerVisuals(rawComData, rawEndEffectorData, robot_frame_tracker);
-
-        // Call GetEEPositionRelativeToFrame and print its position
-        Matrix4x4 eePose_robotFrame = GetEEPoseRelativeToFrame();
-        //Debug.Log($"End Effector Pose Relative to Frame:\n" +
-        //     $"[{eePose_robotFrame.m00:F4}, {eePose_robotFrame.m01:F4}, {eePose_robotFrame.m02:F4}, {eePose_robotFrame.m03:F4}]\n" +
-        //     $"[{eePose_robotFrame.m10:F4}, {eePose_robotFrame.m11:F4}, {eePose_robotFrame.m12:F4}, {eePose_robotFrame.m13:F4}]\n" +
-        //     $"[{eePose_robotFrame.m20:F4}, {eePose_robotFrame.m21:F4}, {eePose_robotFrame.m22:F4}, {eePose_robotFrame.m23:F4}]\n" +
-        //     $"[{eePose_robotFrame.m30:F4}, {eePose_robotFrame.m31:F4}, {eePose_robotFrame.m32:F4}, {eePose_robotFrame.m33:F4}]");
-
-
-        //Here we parse the control effort that we obtained from the controller, to be implemented
-        Wrench controllerOutput = new Wrench { Force = double3.zero, Torque = double3.zero };
-
-        // Remember: 'solverResult' points to an array managed inside CableTensionPlanner
-        double[] solverResult = tensionPlanner.CalculateTensions(
-            rawEndEffectorData.PoseMatrix,
-            controllerOutput,
-            robot_frame_tracker.PoseMatrix
-        );
-
         Span<double> motor_command = stackalloc double[14];
-        MapTensionsToMotors(solverResult, motor_command);
-        // Send the calculated tensions to LabVIEW
-        tcpCommunicator.SetClosedLoopControl();
-        tcpCommunicator.UpdateTensionSetpoint(motor_command);
+
+        double frequency = System.Diagnostics.Stopwatch.Frequency;
+        long intervalTicks = (long)(frequency / 100.0); // Control loop at 100 Hz
+        long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
+        while (isRunning)
+        {
+            // 1. Get the latest raw tracker data (in the arbitrary, RIGHT-HANDED OpenVR/Vive coordinate system).
+            trackerManager.GetCoMTrackerData(out rawComData);
+            trackerManager.GetEndEffectorTrackerData(out rawEndEffectorData);
+
+            // 2. Update visuals (delegated; safe because startup validation guarantees references)
+            visualizer.UpdateTrackerVisuals(rawComData, rawEndEffectorData, robot_frame_tracker);
+
+            // Call GetEEPositionRelativeToFrame and print its position
+            Matrix4x4 eePose_robotFrame = GetEEPoseRelativeToFrame();
+            //Debug.Log($"End Effector Pose Relative to Frame:\n" +
+            //     $"[{eePose_robotFrame.m00:F4}, {eePose_robotFrame.m01:F4}, {eePose_robotFrame.m02:F4}, {eePose_robotFrame.m03:F4}]\n" +
+            //     $"[{eePose_robotFrame.m10:F4}, {eePose_robotFrame.m11:F4}, {eePose_robotFrame.m12:F4}, {eePose_robotFrame.m13:F4}]\n" +
+            //     $"[{eePose_robotFrame.m20:F4}, {eePose_robotFrame.m21:F4}, {eePose_robotFrame.m22:F4}, {eePose_robotFrame.m23:F4}]\n" +
+            //     $"[{eePose_robotFrame.m30:F4}, {eePose_robotFrame.m31:F4}, {eePose_robotFrame.m32:F4}, {eePose_robotFrame.m33:F4}]");
+
+            //Here we parse the control effort that we obtained from the controller, to be implemented
+            Wrench controllerOutput = new Wrench { Force = double3.zero, Torque = double3.zero };
+
+            double[] solverResult = tensionPlanner.CalculateTensions(
+                rawEndEffectorData.PoseMatrix,
+                controllerOutput,
+                robot_frame_tracker.PoseMatrix
+            );
+
+            MapTensionsToMotors(solverResult, motor_command);
+            // Send the calculated tensions to LabVIEW
+            tcpCommunicator.SetClosedLoopControl();
+            tcpCommunicator.UpdateTensionSetpoint(motor_command);
+
+            while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime)
+            {
+                // (BURN CPU cycles to hold timing precision)
+                // prevents OS scheduler from yielding the thread 
+            }
+            nextTargetTime += intervalTicks;
+            
+            // If we are late (processing took > 10 ms), reset the pacer
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (now > nextTargetTime)
+            {
+                nextTargetTime = now + intervalTicks;
+            }
+        }
     }
 
     /// <summary>
@@ -163,6 +198,7 @@ public class RobotController : MonoBehaviour
     {
         // Clean shutdown of threaded components.
         // TrackerManager handles its own shutdown via its OnDestroy method.
+        isRunning = false;
         tcpCommunicator?.Disconnect();
     }
 

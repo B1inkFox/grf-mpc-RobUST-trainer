@@ -108,18 +108,6 @@ public class CableTensionPlannerNative : MonoBehaviour
         currentTensions.CopyTo(result);
     }
 
-    /// <summary>
-    /// Overload that returns internal buffer (be careful with lifetime).
-    /// </summary>
-    public NativeArray<double> CalculateTensions(
-        in Matrix4x4 endEffectorPose,
-        in Wrench desiredWrench,
-        in Matrix4x4 robotFramePose)
-    {
-        ScheduleJob(endEffectorPose, desiredWrench, robotFramePose);
-        currentJobHandle.Complete();
-        return currentTensions;
-    }
 
     /// <summary>
     /// Advanced: Use this if you want to run physics in parallel with other Update logic.

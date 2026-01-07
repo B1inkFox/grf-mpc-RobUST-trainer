@@ -102,7 +102,7 @@ public class CableTensionPlanner : MonoBehaviour
         // Initialize previousSolution with a reasonable default
         previousSolution = new double[matrixCols];
         for (int i = 0; i < matrixCols; i++)
-            previousSolution[i] = 50.0; // default tension value
+            previousSolution[i] = 10.0; // default tension value
         
         // initialize qp solver
         alglib.minqpcreate(matrixCols, out qpState); // Initialize QP state once and reuse it for subsequent solves
@@ -140,7 +140,7 @@ public class CableTensionPlanner : MonoBehaviour
 
         beltCenter_ee_frame = new double3(0, -chest_AP_distance / 2.0, 0);
 
-        Debug.Log($"CableTensionPlanner initialized for {matrixCols} cables with {beltSize} belt size (Unity.Mathematics SIMD).");
+        Debug.Log($"CableTensionPlanner initialized for {matrixCols} cables with {beltSize} belt size");
         return true;
     }
 
@@ -211,16 +211,15 @@ public class CableTensionPlanner : MonoBehaviour
         alglib.minqpoptimize(qpState);
         alglib.minqpresults(qpState, out tensions, out var report);
 
-        // Update warm-start buffer using Buffer.BlockCopy (faster than Array.Copy for primitives)
-        Buffer.BlockCopy(tensions, 0, previousSolution, 0, matrixCols * sizeof(double));
-
         // Check solver result
         if (report.terminationtype < 0)
         {
             Debug.LogWarning($"QP solver failed: {report.terminationtype}");
             return previousSolution;
         }
-
+        
+        // Update warm-start buffer using Buffer.BlockCopy (faster than Array.Copy for primitives)
+        Buffer.BlockCopy(tensions, 0, previousSolution, 0, matrixCols * sizeof(double));
         return tensions;
     }
 

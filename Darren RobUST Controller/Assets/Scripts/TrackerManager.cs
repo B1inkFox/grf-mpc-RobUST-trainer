@@ -42,7 +42,7 @@ public class TrackerManager : MonoBehaviour
     /// <summary>
     /// Initializes the TrackerManager, setting up OpenVR and starting the tracking thread.
     /// </summary>
-    /// <returns>True if initialization was successful, false otherwise.</returns>
+    /// <returns> True if initialization was successful, false otherwise.</returns>
     public bool Initialize()
     {
         try
