@@ -144,10 +144,9 @@ public class TrackerManager : MonoBehaviour
     /// </summary>
     private void TrackingLoop()
     {
-        // Use double for initial calculation, but long for the loop to avoid floating point inaccuracies.
-        double exactIntervalTicks = (double)System.Diagnostics.Stopwatch.Frequency / 90.0; // 90Hz
-        long targetIntervalTicks = (long)Math.Round(exactIntervalTicks);
-        long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp();
+        double frequency = System.Diagnostics.Stopwatch.Frequency;
+        long intervalTicks = (long)(frequency / sendFrequency_Hz);
+        long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
 
         while (isRunning)
         {
@@ -169,47 +168,43 @@ public class TrackerManager : MonoBehaviour
                 }
             }
             
-            System.Threading.SpinWait.SpinUntil(() => System.Diagnostics.Stopwatch.GetTimestamp() >= nextTargetTime);
-            // Advance the target time for the next loop iteration.
-            nextTargetTime += targetIntervalTicks;
-            // Drift compensation: If we've fallen behind, reset the timer
-            long currentTime = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (nextTargetTime <= currentTime)
+            while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime)
             {
-                // We're behind - skip ahead to maintain frequency
-                nextTargetTime = currentTime;
-                Debug.LogWarning("Tracker fell behind schedule, resetting timer");
+                // (BURN CPU cycles to hold timing precision)
+                // prevents OS scheduler from yielding the thread 
+            }
+            nextTargetTime += intervalTicks;
+            
+            // If we are late (processing took > 11.1ms), reset the pacer
+            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (now > nextTargetTime)
+            {
+                nextTargetTime = now + intervalTicks;
             }
         }
     }
 
-    /// <summary>
-    /// Gets the latest data for the CoM tracker.
-    /// </summary>
-    public TrackerData GetCoMTrackerData()
+    public void GetCoMTrackerData(out TrackerData data)
     {
         lock (dataLock)
         {
-            return comTrackerData;
+            data = comTrackerData;
         }
     }
 
-    /// <summary>
-    /// Gets the latest data for the end-effector tracker.
-    /// </summary>
-    public TrackerData GetEndEffectorTrackerData()
+    public void GetEndEffectorTrackerData(out TrackerData data)
     {
         lock (dataLock)
         {
-            return endEffectorData;
+            data = endEffectorData;
         }
     }
 
-    public TrackerData GetFrameTrackerData()
+    public void GetFrameTrackerData(out TrackerData data)
     {
         lock (dataLock)
         {
-            return frameTrackerData;
+            data = frameTrackerData;
         }
     }
 

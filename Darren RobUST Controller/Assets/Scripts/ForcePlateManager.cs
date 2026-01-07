@@ -129,67 +129,47 @@ public class ForcePlateManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Gets the force plate data for a specific plate.
+    /// Gets the force plate data for a specific plate with zero allocations.
     /// Thread-safe access.
     /// </summary>
-    public ForcePlateData GetForcePlateData(int plateIndex = 0, bool in_global_frame = true)
+    public void GetForcePlateData(int plateIndex, out ForcePlateData data, bool in_global_frame = true)
     {
         lock (dataLock)
         {
             if (plateIndex < 0 || plateIndex >= numForcePlates)
             {
                 Debug.LogWarning($"Invalid force plate index: {plateIndex}");
-                return new ForcePlateData();
+                data = new ForcePlateData();
+                return;
             }
-            ForcePlateData data = new ForcePlateData(
-                forcePlateDataArray[plateIndex].Force, 
-                forcePlateDataArray[plateIndex].CenterOfPressure
-            );
+            
             if (in_global_frame)
-            {
-                data = TransformForcePlateData(data);
-            }
-            return data;
+                TransformForcePlateData(in forcePlateDataArray[plateIndex], out data);
+            else
+                data = forcePlateDataArray[plateIndex];// Direct assignment from array (its a struct)
         }
-    }
-    
-    /// <summary>
-    /// Gets a copy of the force plate data array for all plates. 
-    /// This really shouldnt be used often(ever) as it allocates memory
-    /// which requires the garbage collector to clean up.
-    /// Thread-safe access.
-    /// </summary>
-    public ForcePlateData[] GetForcePlateData(bool in_global_frame = true)
-    {
-        ForcePlateData[] result = new ForcePlateData[numForcePlates];
-        lock (dataLock)
-        {
-            Array.Copy(forcePlateDataArray, result, numForcePlates);
-            if (in_global_frame) {
-                for(int i = 0; i < numForcePlates; i++) {
-                    result[i] = TransformForcePlateData(result[i]);
-                }
-            }
-        }
-        return result;
-    }    
+    }  
 
     /// <summary>
     /// Transforms a ForcePlateData from the local vicon frame into the global robot frame
-    /// using the existing ForcePlateCalibrator `calib`.
+    /// using the existing ForcePlateCalibrator `calib`. Zero allocations.
     /// </summary>
-    private ForcePlateData TransformForcePlateData(ForcePlateData data_local)
+    private void TransformForcePlateData(in ForcePlateData data_local, out ForcePlateData data_global)
     {
+        // Use stack-allocated temporary variables
+        double3 force_global = default;
+        double3 cop_global = default;
+        
         // Project the force (rotation only)
         Vector3 force_vector3 = (float3)data_local.Force; 
-        double3 force_global = calib.ProjectForce(force_vector3);
+        calib.ProjectForce(force_vector3, out force_global);
 
         // Project the center of pressure (mm → m, then apply rotation + translation)
         Vector3 cop_vector3 = (float3)data_local.CenterOfPressure;
-        double3 cop_global = calib.ProjectPosition(cop_vector3);
+        calib.ProjectPosition(cop_vector3, out cop_global);
 
-        // Return as a new ForcePlateData object
-        return new ForcePlateData(force_global, cop_global);
+        // Assign to output
+        data_global = new ForcePlateData(force_global, cop_global);
     }
     
     /// <summary>

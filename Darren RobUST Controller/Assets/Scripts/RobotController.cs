@@ -71,7 +71,7 @@ public class RobotController : MonoBehaviour
 
         // Capture static frame reference to prevent drift during operation
         System.Threading.Thread.Sleep(100); // Brief pause for tracking stability
-        robot_frame_tracker.PoseMatrix = trackerManager.GetFrameTrackerData().PoseMatrix;
+        trackerManager.GetFrameTrackerData(out robot_frame_tracker);
 
         // Initialize visualizer now that frame pose is available
         ReadOnlySpan<Vector3> pulleyPositions = tensionPlanner.GetPulleyPositionsInRobotFrame();
@@ -97,8 +97,9 @@ public class RobotController : MonoBehaviour
     private void Update()
     {
         // 1. Get the latest raw tracker data (in the arbitrary, RIGHT-HANDED OpenVR/Vive coordinate system).
-        TrackerData rawComData = trackerManager.GetCoMTrackerData();
-        TrackerData rawEndEffectorData = trackerManager.GetEndEffectorTrackerData();
+        TrackerData rawComData, rawEndEffectorData;
+        trackerManager.GetCoMTrackerData(out rawComData);
+        trackerManager.GetEndEffectorTrackerData(out rawEndEffectorData);
 
         // 2. Update visuals (delegated; safe because startup validation guarantees references)
         visualizer.UpdateTrackerVisuals(rawComData, rawEndEffectorData, robot_frame_tracker);

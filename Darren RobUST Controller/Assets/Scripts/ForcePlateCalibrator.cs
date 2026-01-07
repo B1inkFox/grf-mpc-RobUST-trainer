@@ -105,20 +105,22 @@ public class ForcePlateCalibrator
 
     /// <summary>
     /// Project a local point (e.g., CoP) from O1 (in millimeters) to O0 (in meters).
+    /// Zero allocation version.
     /// </summary>
-    public double3 ProjectPosition(Vector3 pO1_mm)
+    public void ProjectPosition(Vector3 pO1_mm, out double3 result)
     {   
-        Vector3 result = T_point.MultiplyPoint3x4(pO1_mm);
-        return new double3(result.x, result.y, result.z);
+        Vector3 transformed = T_point.MultiplyPoint3x4(pO1_mm);
+        result = new double3(transformed.x, transformed.y, transformed.z);
     }
 
     /// <summary>
     /// Project a local vector (e.g., Force) from O1 to O0 (rotation only).
+    /// Zero allocation version.
     /// </summary>
-    public double3 ProjectForce(Vector3 fO1)
+    public void ProjectForce(Vector3 fO1, out double3 result)
     {
-        Vector3 result = R_only.MultiplyVector(fO1);
-        return new double3(result.x, result.y, result.z);
+        Vector3 rotated = R_only.MultiplyVector(fO1);
+        result = new double3(rotated.x, rotated.y, rotated.z);
     }
 
     // ----------------- Helpers -----------------
