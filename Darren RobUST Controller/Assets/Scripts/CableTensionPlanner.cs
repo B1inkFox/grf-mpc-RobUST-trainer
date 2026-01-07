@@ -123,8 +123,8 @@ public class CableTensionPlanner : MonoBehaviour
 
         // Copy to Vector3 array for visualizer compatibility (init-only allocation)
         for (int i = 0; i < matrixCols; i++)
-            framePulleyPositionsVec3[i] = new Vector3((float3)framePulleyPositions[i]);
-
+            framePulleyPositionsVec3[i] = new Vector3((float)framePulleyPositions[i].x, (float)framePulleyPositions[i].y, (float)framePulleyPositions[i].z);
+            
         // Pre-allocate local attachment points based on belt geometry relative to end-effector tracker
         double halfML = chest_ML_distance / 2.0;
 

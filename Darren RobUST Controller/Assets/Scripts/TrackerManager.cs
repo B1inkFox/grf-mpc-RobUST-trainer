@@ -145,7 +145,7 @@ public class TrackerManager : MonoBehaviour
     private void TrackingLoop()
     {
         double frequency = System.Diagnostics.Stopwatch.Frequency;
-        long intervalTicks = (long)(frequency / sendFrequency_Hz);
+        long intervalTicks = (long)(frequency / 90.0);
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
 
         while (isRunning)

@@ -137,7 +137,8 @@ public class RobotController : MonoBehaviour
     /// <returns>Position relative to frame tracker, or Vector3.zero if not found</returns>
     public Matrix4x4 GetEEPoseRelativeToFrame()
     {
-        TrackerData ee_data = trackerManager.GetEndEffectorTrackerData();
+        TrackerData ee_data;
+        trackerManager.GetEndEffectorTrackerData(out ee_data);
         Matrix4x4 eePose = ee_data.PoseMatrix;
         Matrix4x4 framePose_inverse = robot_frame_tracker.PoseMatrix.inverse;
         Matrix4x4 relativePose = framePose_inverse * eePose;
