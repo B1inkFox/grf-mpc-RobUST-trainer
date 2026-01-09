@@ -288,10 +288,9 @@ GameObject:
   - component: {fileID: 748268987}
   - component: {fileID: 748268986}
   - component: {fileID: 748268985}
-  - component: {fileID: 748268988}
   - component: {fileID: 748268983}
-  - component: {fileID: 748268989}
   - component: {fileID: 748268990}
+  - component: {fileID: 748268989}
   m_Layer: 0
   m_Name: RobotSystem
   m_TagString: Untagged
@@ -341,11 +340,13 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   trackerManager: {fileID: 748268985}
-  tensionPlanner: {fileID: 748268988}
   forcePlateManager: {fileID: 748268990}
   tcpCommunicator: {fileID: 748268983}
   visualizer: {fileID: 748268989}
   isLabviewControlEnabled: 0
+  numCables: 8
+  chestAPDistance: 0.15
+  chestMLDistance: 0.3
 --- !u!4 &748268987
 Transform:
   m_ObjectHideFlags: 0
@@ -361,22 +362,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &748268988
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 748268981}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 20cf98459385014f1bcb5f57e59683ed, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  matrixCols: 8
-  chest_AP_distance: 0.15
-  chest_ML_distance: 0.3
-  beltSize: 0
 --- !u!114 &748268989
 MonoBehaviour:
   m_ObjectHideFlags: 0

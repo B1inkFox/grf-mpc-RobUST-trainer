@@ -82,3 +82,85 @@ public abstract class BaseController<T>
     public abstract void Initialize();
     public abstract T computeNextControl();
 }
+
+/// <summary>
+/// Complete robot description for the RobUST cable-driven parallel robot.
+/// Contains all constant parameters needed for kinematics, dynamics, and control.
+/// Allocated once at startup - zero runtime allocations.
+/// </summary>
+public sealed class RobUSTDescription
+{
+    public readonly int NumCables;
+    
+    /// <summary>Pulley positions in robot frame [m] (double3 for SIMD)</summary>
+    public readonly double3[] FramePulleyPositions;
+    
+    /// <summary>Pulley positions in robot frame [m] (Vector3 for Unity visualization)</summary>
+    public readonly Vector3[] FramePulleyPositionsVec3;
+    
+    /// <summary>Cable attachment points on belt, in end-effector frame [m]</summary>
+    public readonly double3[] LocalAttachmentPoints;
+    
+    /// <summary>Belt center in end-effector frame [m]</summary>
+    public readonly double3 BeltCenter_EE_Frame;
+    
+    /// <summary>Chest anterior-posterior distance [m]</summary>
+    public readonly double ChestAPDistance;
+    
+    /// <summary>Chest medial-lateral distance [m]</summary>
+    public readonly double ChestMLDistance;
+
+    private RobUSTDescription(int numCables, double chestAP, double chestML)
+    {
+        NumCables = numCables;
+        ChestAPDistance = chestAP;
+        ChestMLDistance = chestML;
+        
+        FramePulleyPositions = new double3[numCables];
+        FramePulleyPositionsVec3 = new Vector3[numCables];
+        LocalAttachmentPoints = new double3[numCables];
+
+        // Fixed pulley positions relative to robot frame tracker (measured/calibrated)
+        FramePulleyPositions[0] = new double3(-0.8114, 1.6556, 0.9400);   // Front-Right Top (Motor 10)
+        FramePulleyPositions[1] = new double3(-0.8066, 0.0084, 0.8895);   // Front-Left Top (Motor 5)
+        FramePulleyPositions[2] = new double3(0.9827, 0.0592, 0.9126);    // Back-Left Top (Motor 4)
+        FramePulleyPositions[3] = new double3(0.9718, 1.6551, 0.9411);    // Back-Right Top (Motor 11)
+        FramePulleyPositions[4] = new double3(-0.8084, 1.6496, -0.3060);  // Front-Right Bottom (Motor 8)
+        FramePulleyPositions[5] = new double3(-0.7667, 0.0144, -0.3243);  // Front-Left Bottom (Motor 7)
+        FramePulleyPositions[6] = new double3(0.9748, 0.0681, -0.5438);   // Back-Left Bottom (Motor 2)
+        FramePulleyPositions[7] = new double3(0.9498, 1.6744, -0.5409);   // Back-Right Bottom (Motor 13)
+
+        // Copy to Vector3 array for visualizer compatibility
+        for (int i = 0; i < numCables; i++)
+        {
+            FramePulleyPositionsVec3[i] = new Vector3(
+                (float)FramePulleyPositions[i].x,
+                (float)FramePulleyPositions[i].y,
+                (float)FramePulleyPositions[i].z);
+        }
+
+        // Local attachment points based on belt geometry relative to end-effector tracker
+        double halfML = chestML / 2.0;
+        LocalAttachmentPoints[0] = new double3(-halfML, -chestAP, 0);  // Front-Right
+        LocalAttachmentPoints[1] = new double3(halfML, -chestAP, 0);   // Front-Left
+        LocalAttachmentPoints[2] = new double3(halfML, 0, 0);          // Back-Left
+        LocalAttachmentPoints[3] = new double3(-halfML, 0, 0);         // Back-Right
+        // Repeat for bottom cables
+        LocalAttachmentPoints[4] = new double3(-halfML, -chestAP, 0);  // Front-Right
+        LocalAttachmentPoints[5] = new double3(halfML, -chestAP, 0);   // Front-Left
+        LocalAttachmentPoints[6] = new double3(halfML, 0, 0);          // Back-Left
+        LocalAttachmentPoints[7] = new double3(-halfML, 0, 0);         // Back-Right
+
+        // Belt center in end-effector frame
+        BeltCenter_EE_Frame = new double3(0, -chestAP / 2.0, 0);
+    }
+
+    /// <summary>
+    /// Factory method to create RobUST description from belt/chest configuration.
+    /// All allocations happen here at init - nothing at runtime.
+    /// </summary>
+    public static RobUSTDescription Create(int numCables, double chestAPDistance, double chestMLDistance)
+    {
+        return new RobUSTDescription(numCables, chestAPDistance, chestMLDistance);
+    }
+}

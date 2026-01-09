@@ -9,35 +9,17 @@ using static Unity.Mathematics.math;
 /// 
 /// OPTIMIZATION NOTES:
 /// - Uses Unity.Mathematics (SIMD-optimized) for all vector/matrix operations
-/// - Pre-allocates all arrays during Initialize() - no runtime allocations
+/// - Pre-allocates all arrays during construction - no runtime allocations
 /// - ALGLIB still allocates internally (~2-5KB per solve) - see CableTensionPlannerNative for zero-alloc version
 /// - Reuses QP state with warm-start for faster convergence
 /// </summary>
-public class CableTensionPlanner : MonoBehaviour
+public class CableTensionPlanner
 {
-    [Tooltip("Number of columns (cables) in the structure matrix.")]
-    public int matrixCols = 8;
-
-    [Header("Chest Anterior-Posterior Distance")]
-    [Tooltip("Measured Thickness of the chest in the anterior-posterior direction.")]
-    public float chest_AP_distance = 0;
-
-    [Header("Chest Medial-Lateral Distance")]
-    [Tooltip("Measured width of the chest in the medial-lateral direction.")]
-    public float chest_ML_distance = 0;
-
-    public enum BeltSize { Small, Large }
-    [Header("Belt Size")]
-    [Tooltip("Select the belt size for the user.")]
-    public BeltSize beltSize = BeltSize.Small;
-
-    // Pre-computed constants - using Unity.Mathematics types for SIMD
-    private double[] tensions;
-    private double3[] localAttachmentPoints;  // r_i vectors, local to the end-effector (double3 for SIMD)
-    private double3[] framePulleyPositions;   // Pulley positions in robot frame (double3 for SIMD)
-    private Vector3[] framePulleyPositionsVec3; // Keep Vector3 version for visualizer compatibility
+    // Reference to shared robot description (injected during Initialize)
+    private RobUSTDescription robot;
 
     // Pre-allocated QP matrices (allocated once, reused every calculation)
+    private double[] tensions;
     private double[,] quadratic;
     private double[] linear;
     private double[,] sMatrix; // 6x8 structure matrix for force/torque constraints
@@ -55,93 +37,49 @@ public class CableTensionPlanner : MonoBehaviour
     // Add new fields for QP state and warm start solution
     private alglib.minqpstate qpState;
     private double[] previousSolution;
-    
-    // center of belt end-effector in ee frame
-    private double3 beltCenter_ee_frame;
 
     /// <summary>
-    /// Initializes the tension planner by pre-calculating constant geometric properties.
-    /// Called by RobotController in the correct dependency order.
+    /// Constructs and initializes the tension planner using the robot description.
+    /// All allocations happen here - zero runtime allocations.
     /// </summary>
-    /// <returns>True if initialization succeeded, false otherwise</returns>
-    public bool Initialize()
+    /// <param name="robotDescription">RobUST description (owned by RobotController)</param>
+    public CableTensionPlanner(RobUSTDescription robotDescription)
     {
-        // Validate configuration
-        if (chest_AP_distance <= 0 || chest_ML_distance <= 0)
-        {
-            Debug.LogError("Chest dimensions must be positive values.", this);
-            return false;
-        }
+        robot = robotDescription ?? throw new ArgumentNullException(nameof(robotDescription));
+        int numCables = robot.NumCables;
 
-        // Pre-allocate all data structures using Unity.Mathematics types
-        tensions = new double[matrixCols];
-        localAttachmentPoints = new double3[matrixCols];
-        framePulleyPositions = new double3[matrixCols];
-        framePulleyPositionsVec3 = new Vector3[matrixCols]; // For visualizer compatibility
-
-        // Pre-allocate QP structures
-        quadratic = new double[matrixCols, matrixCols];
-        linear = new double[matrixCols];
-        sMatrix = new double[6, matrixCols]; // 6xnumCables structure matrix
-        tensionLower = new double[matrixCols]; // box constraints arrays
-        tensionUpper = new double[matrixCols];
+        // Pre-allocate QP-specific data structures
+        tensions = new double[numCables];
+        quadratic = new double[numCables, numCables];
+        linear = new double[numCables];
+        sMatrix = new double[6, numCables]; // 6xnumCables structure matrix
+        tensionLower = new double[numCables]; // box constraints arrays
+        tensionUpper = new double[numCables];
         lowerWrenchBounds = new double[6]; // linear constraints arrays
         upperWrenchBounds = new double[6];
 
         // Initialize quadratic matrix: P = 2*Identity (constant, never changes)
-        for (int i = 0; i < matrixCols; i++)
+        for (int i = 0; i < numCables; i++)
             quadratic[i, i] = 2.0;
             
         // Initialize tension bounds (constant, never changes)
-        for (int i = 0; i < matrixCols; i++)
+        for (int i = 0; i < numCables; i++)
         {
             tensionLower[i] = minTension;  // Minimum tension
             tensionUpper[i] = maxTension; // Maximum tension
         }
 
         // Initialize previousSolution with a reasonable default
-        previousSolution = new double[matrixCols];
-        for (int i = 0; i < matrixCols; i++)
+        previousSolution = new double[numCables];
+        for (int i = 0; i < numCables; i++)
             previousSolution[i] = 10.0; // default tension value
         
         // initialize qp solver
-        alglib.minqpcreate(matrixCols, out qpState); // Initialize QP state once and reuse it for subsequent solves
+        alglib.minqpcreate(numCables, out qpState); // Initialize QP state once and reuse it for subsequent solves
         alglib.minqpsetalgodenseipm(qpState, 1e-6);  // Stopping tolerance: 1e-6
         alglib.minqpsetquadraticterm(qpState, quadratic, true);
         alglib.minqpsetlinearterm(qpState, linear);
         alglib.minqpsetbc(qpState, tensionLower, tensionUpper);
-
-        // Pre-allocate fixed pulley positions relative to robot frame tracker (using double3 for SIMD)
-        framePulleyPositions[0] = new double3(-0.8114, 1.6556, 0.9400);   // Front-Right Top (Motor 10)
-        framePulleyPositions[1] = new double3(-0.8066, 0.0084, 0.8895);   // Front-Left Top (Motor 5)
-        framePulleyPositions[2] = new double3(0.9827, 0.0592, 0.9126);    // Back-Left Top (Motor 4)
-        framePulleyPositions[3] = new double3(0.9718, 1.6551, 0.9411);    // Back-Right Top (Motor 11)
-        framePulleyPositions[4] = new double3(-0.8084, 1.6496, -0.3060);  // Front-Right Bottom (Motor 8)
-        framePulleyPositions[5] = new double3(-0.7667, 0.0144, -0.3243);  // Front-Left Bottom (Motor 7)
-        framePulleyPositions[6] = new double3(0.9748, 0.0681, -0.5438);   // Back-Left Bottom (Motor 2)
-        framePulleyPositions[7] = new double3(0.9498, 1.6744, -0.5409);   // Back-Right Bottom (Motor 13)
-
-        // Copy to Vector3 array for visualizer compatibility (init-only allocation)
-        for (int i = 0; i < matrixCols; i++)
-            framePulleyPositionsVec3[i] = new Vector3((float)framePulleyPositions[i].x, (float)framePulleyPositions[i].y, (float)framePulleyPositions[i].z);
-            
-        // Pre-allocate local attachment points based on belt geometry relative to end-effector tracker
-        double halfML = chest_ML_distance / 2.0;
-
-        localAttachmentPoints[0] = new double3(-halfML, -chest_AP_distance, 0);  // Front-Right
-        localAttachmentPoints[1] = new double3(halfML, -chest_AP_distance, 0);   // Front-Left
-        localAttachmentPoints[2] = new double3(halfML, 0, 0);                      // Back-Left 
-        localAttachmentPoints[3] = new double3(-halfML, 0, 0);                     // Back-Right 
-        // repeat for bottom cables
-        localAttachmentPoints[4] = new double3(-halfML, -chest_AP_distance, 0);  // Front-Right
-        localAttachmentPoints[5] = new double3(halfML, -chest_AP_distance, 0);   // Front-Left
-        localAttachmentPoints[6] = new double3(halfML, 0, 0);                      // Back-Left
-        localAttachmentPoints[7] = new double3(-halfML, 0, 0);                     // Back-Right
-
-        beltCenter_ee_frame = new double3(0, -chest_AP_distance / 2.0, 0);
-
-        Debug.Log($"CableTensionPlanner initialized for {matrixCols} cables with {beltSize} belt size");
-        return true;
     }
 
     /// <summary>
@@ -159,19 +97,21 @@ public class CableTensionPlanner : MonoBehaviour
         double4x4 robotFrameInv = ToDouble4x4(robotFramePose.inverse);
         double4x4 eeToRobotFrame = mul(robotFrameInv, eeToWorld);
 
+        int numCables = robot.NumCables;
+        
         // Build Structure Matrix using SIMD operations
-        for (int i = 0; i < matrixCols; i++)
+        for (int i = 0; i < numCables; i++)
         {
             // Transform attachment point to robot frame using SIMD
-            double3 attachLocal = localAttachmentPoints[i];
+            double3 attachLocal = robot.LocalAttachmentPoints[i];
             double3 attachRobotFrame = TransformPoint(eeToRobotFrame, attachLocal);
 
             // Calculate cable direction vector (pulley - attachment)
-            double3 cableVec = framePulleyPositions[i] - attachRobotFrame;
+            double3 cableVec = robot.FramePulleyPositions[i] - attachRobotFrame;
             double3 u_i = normalize(cableVec); // SIMD normalized
 
             // Calculate torque arm: from belt center to attachment point
-            double3 r_local = attachLocal - beltCenter_ee_frame;
+            double3 r_local = attachLocal - robot.BeltCenter_EE_Frame;
             double3 r_robotFrame = TransformPoint(eeToRobotFrame, r_local);
             
             // Torque component using SIMD cross product
@@ -214,21 +154,21 @@ public class CableTensionPlanner : MonoBehaviour
         // Check solver result
         if (report.terminationtype < 0)
         {
-            Debug.LogWarning($"QP solver failed: {report.terminationtype}");
+            //Debug.LogWarning($"QP solver failed: {report.terminationtype}");
             return previousSolution;
         }
         
         // Update warm-start buffer using Buffer.BlockCopy (faster than Array.Copy for primitives)
-        Buffer.BlockCopy(tensions, 0, previousSolution, 0, matrixCols * sizeof(double));
+        Buffer.BlockCopy(tensions, 0, previousSolution, 0, robot.NumCables * sizeof(double));
         return tensions;
     }
 
     /// <summary>
-    /// Returns pulley positions for visualizer (Vector3 array, pre-allocated during init).
+    /// Returns pulley positions for visualizer (Vector3 array, pre-allocated in description).
     /// </summary>
     public ReadOnlySpan<Vector3> GetPulleyPositionsInRobotFrame()
     {
-        return new ReadOnlySpan<Vector3>(framePulleyPositionsVec3);
+        return new ReadOnlySpan<Vector3>(robot.FramePulleyPositionsVec3);
     }
 
     // ============ Unity.Mathematics Helpers (SIMD) ============

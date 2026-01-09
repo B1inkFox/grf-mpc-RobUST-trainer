@@ -3,27 +3,24 @@ using Unity.Mathematics;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Burst;
+using System;
 
-public class CableTensionPlannerNative : MonoBehaviour
+/// <summary>
+/// Zero-allocation cable tension solver using Burst-compiled ADMM.
+/// Implements IDisposable for proper NativeArray cleanup.
+/// </summary>
+public class CableTensionPlannerNative : IDisposable
 {
-    [Tooltip("Number of cables in the system.")]
-    public int numCables = 8;
+    // Solver parameters
+    private readonly double minTension;
+    private readonly double maxTension;
+    private readonly double forceTolerance;
+    private readonly double torqueTolerance;
+    private readonly int solverIterations;
+    private readonly double rho;
 
-    [Header("Chest Dimensions")]
-    public float chest_AP_distance = 0;
-    public float chest_ML_distance = 0;
-
-    [Header("Solver Constraints")]
-    public double minTension = 10.0;
-    public double maxTension = 200.0;
-    public double forceTolerance = 0.01;
-    public double torqueTolerance = 1000.0; // High tolerance in original code, adjust as needed
-
-    [Header("ADMM Solver Settings")]
-    [Tooltip("Solver Iterations (ADMM converges fast, 25-50 is usually enough)")]
-    public int solverIterations = 40;
-    [Tooltip("Penalty parameter. Higher = stricter constraint enforcement but slower convergence. 1.0-5.0 is standard.")]
-    public double rho = 1.0; 
+    // Reference to robot description
+    private readonly RobUSTDescription robot;
 
     // ============ Native Memory ============
     private NativeArray<double3> localAttachmentPoints;
@@ -36,12 +33,38 @@ public class CableTensionPlannerNative : MonoBehaviour
     private NativeArray<double3> beltCenterRef;
     private NativeArray<double> jobResultError;
 
-    private bool isInitialized = false;
     private JobHandle currentJobHandle;
+    private bool isDisposed = false;
 
-    public bool Initialize()
+    /// <summary>
+    /// Constructs the native tension planner. All NativeArray allocations happen here.
+    /// </summary>
+    /// <param name="robotDescription">RobUST description</param>
+    /// <param name="minTension">Minimum cable tension [N]</param>
+    /// <param name="maxTension">Maximum cable tension [N]</param>
+    /// <param name="forceTolerance">Force constraint tolerance [N]</param>
+    /// <param name="torqueTolerance">Torque constraint tolerance [Nm]</param>
+    /// <param name="solverIterations">ADMM iterations (25-50 typical)</param>
+    /// <param name="rho">ADMM penalty parameter (1.0-5.0 typical)</param>
+    public CableTensionPlannerNative(
+        RobUSTDescription robotDescription,
+        double minTension = 10.0,
+        double maxTension = 200.0,
+        double forceTolerance = 0.01,
+        double torqueTolerance = 1000.0,
+        int solverIterations = 40,
+        double rho = 1.0)
     {
-        if (chest_AP_distance <= 0 || chest_ML_distance <= 0) return false;
+        robot = robotDescription ?? throw new ArgumentNullException(nameof(robotDescription));
+        
+        this.minTension = minTension;
+        this.maxTension = maxTension;
+        this.forceTolerance = forceTolerance;
+        this.torqueTolerance = torqueTolerance;
+        this.solverIterations = solverIterations;
+        this.rho = rho;
+        
+        int numCables = robot.NumCables;
 
         // Allocate Persistent NativeArrays
         localAttachmentPoints = new NativeArray<double3>(numCables, Allocator.Persistent);
@@ -53,33 +76,18 @@ public class CableTensionPlannerNative : MonoBehaviour
         beltCenterRef = new NativeArray<double3>(1, Allocator.Persistent);
         jobResultError = new NativeArray<double>(1, Allocator.Persistent);
 
-        // --- 1. Setup Geometry (Same as your original) ---
-        framePulleyPositions[0] = new double3(-0.8114, 1.6556, 0.9400);   // FR-Top
-        framePulleyPositions[1] = new double3(-0.8066, 0.0084, 0.8895);   // FL-Top
-        framePulleyPositions[2] = new double3(0.9827, 0.0592, 0.9126);    // BL-Top
-        framePulleyPositions[3] = new double3(0.9718, 1.6551, 0.9411);    // BR-Top
-        framePulleyPositions[4] = new double3(-0.8084, 1.6496, -0.3060);  // FR-Bot
-        framePulleyPositions[5] = new double3(-0.7667, 0.0144, -0.3243);  // FL-Bot
-        framePulleyPositions[6] = new double3(0.9748, 0.0681, -0.5438);   // BL-Bot
-        framePulleyPositions[7] = new double3(0.9498, 1.6744, -0.5409);   // BR-Bot
-
-        double halfML = chest_ML_distance / 2.0;
-        localAttachmentPoints[0] = new double3(-halfML, -chest_AP_distance, 0); 
-        localAttachmentPoints[1] = new double3(halfML, -chest_AP_distance, 0); 
-        localAttachmentPoints[2] = new double3(halfML, 0, 0); 
-        localAttachmentPoints[3] = new double3(-halfML, 0, 0); 
-        localAttachmentPoints[4] = new double3(-halfML, -chest_AP_distance, 0); 
-        localAttachmentPoints[5] = new double3(halfML, -chest_AP_distance, 0); 
-        localAttachmentPoints[6] = new double3(halfML, 0, 0); 
-        localAttachmentPoints[7] = new double3(-halfML, 0, 0); 
-
-        beltCenterRef[0] = new double3(0, -chest_AP_distance / 2.0, 0);
+        // Copy description into NativeArrays (required for Burst Jobs)
+        for (int i = 0; i < numCables; i++)
+        {
+            framePulleyPositions[i] = robot.FramePulleyPositions[i];
+            localAttachmentPoints[i] = robot.LocalAttachmentPoints[i];
+        }
+        beltCenterRef[0] = robot.BeltCenter_EE_Frame;
 
         // Warm start with mid-range tensions
         for (int i = 0; i < numCables; i++) currentTensions[i] = 50.0;
 
-        isInitialized = true;
-        return true;
+        Debug.Log($"CableTensionPlannerNative initialized for {numCables} cables (Burst ADMM)");
     }
 
     /// <summary>
@@ -107,7 +115,7 @@ public class CableTensionPlannerNative : MonoBehaviour
         // 2. Schedule ADMM Job
         var job = new AdmmSolverJob
         {
-            numCables = numCables,
+            numCables = robot.NumCables,
             eeToRobotFrame = jobInputMatrices,
             localAttachments = localAttachmentPoints,
             framePulleys = framePulleyPositions,
@@ -129,23 +137,31 @@ public class CableTensionPlannerNative : MonoBehaviour
         currentJobHandle.Complete();
 
         // 3. Output results
-        currentTensions.CopyTo(resultBuffer);
+        resultBuffer.CopyFrom(currentTensions);
         return jobResultError[0];
     }
 
-    private void OnDestroy()
+    /// <summary>
+    /// Disposes all NativeArrays. Must be called when done (or use 'using' statement).
+    /// </summary>
+    public void Dispose()
     {
-        if (isInitialized)
-        {
-            if(!currentJobHandle.IsCompleted) currentJobHandle.Complete();
-            if (localAttachmentPoints.IsCreated) localAttachmentPoints.Dispose();
-            if (framePulleyPositions.IsCreated) framePulleyPositions.Dispose();
-            if (currentTensions.IsCreated) currentTensions.Dispose();
-            if (jobInputWrench.IsCreated) jobInputWrench.Dispose();
-            if (jobInputMatrices.IsCreated) jobInputMatrices.Dispose();
-            if (beltCenterRef.IsCreated) beltCenterRef.Dispose();
-            if (jobResultError.IsCreated) jobResultError.Dispose();
-        }
+        if (isDisposed) return;
+        isDisposed = true;
+        
+        if (!currentJobHandle.IsCompleted) currentJobHandle.Complete();
+        if (localAttachmentPoints.IsCreated) localAttachmentPoints.Dispose();
+        if (framePulleyPositions.IsCreated) framePulleyPositions.Dispose();
+        if (currentTensions.IsCreated) currentTensions.Dispose();
+        if (jobInputWrench.IsCreated) jobInputWrench.Dispose();
+        if (jobInputMatrices.IsCreated) jobInputMatrices.Dispose();
+        if (beltCenterRef.IsCreated) beltCenterRef.Dispose();
+        if (jobResultError.IsCreated) jobResultError.Dispose();
+    }
+    
+    ~CableTensionPlannerNative()
+    {
+        Dispose();
     }
     
     private static double4x4 ToDouble4x4(Matrix4x4 m)
@@ -198,16 +214,15 @@ struct AdmmSolverJob : IJob
             double3 attachPos = math.mul(T, p4).xyz;
             double3 diff = framePulleys[i] - attachPos;
             double len = math.length(diff);
-            double3 u = (len > 1e-6) ? diff / len : double3.zero;
+            double3 uu = (len > 1e-6) ? diff / len : double3.zero;
 
             double4 r_local = new double4(localAttachments[i] - beltCenter, 0.0);
             double3 r = math.mul(T, r_local).xyz; 
-            double3 tau = math.cross(r, u); 
-
+            double3 tau = math.cross(r, uu); 
             // Column Major or Row Major? Let's index manually: S[row * 8 + col]
-            S[0 * 8 + i] = u.x;
-            S[1 * 8 + i] = u.y;
-            S[2 * 8 + i] = u.z;
+            S[0 * 8 + i] = uu.x;
+            S[1 * 8 + i] = uu.y;
+            S[2 * 8 + i] = uu.z;
             S[3 * 8 + i] = tau.x;
             S[4 * 8 + i] = tau.y;
             S[5 * 8 + i] = tau.z;

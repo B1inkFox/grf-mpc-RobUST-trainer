@@ -91,9 +91,7 @@ public class TrackerManager : MonoBehaviour
                 continue;
 
             var error = ETrackedPropertyError.TrackedProp_Success;
-            vrSystem.GetStringTrackedDeviceProperty(deviceId, 
-                ETrackedDeviceProperty.Prop_SerialNumber_String, 
-                buffer, OpenVR.k_unMaxPropertyStringSize, ref error);
+            vrSystem.GetStringTrackedDeviceProperty(deviceId, ETrackedDeviceProperty.Prop_SerialNumber_String, buffer, OpenVR.k_unMaxPropertyStringSize, ref error);
 
             if (error != ETrackedPropertyError.TrackedProp_Success)
                 continue;

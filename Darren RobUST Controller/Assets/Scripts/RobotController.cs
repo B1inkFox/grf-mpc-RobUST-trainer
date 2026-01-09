@@ -14,9 +14,6 @@ public class RobotController : MonoBehaviour
     [Tooltip("The TrackerManager instance that provides tracker data.")]
     public TrackerManager trackerManager;
 
-    [Tooltip("The CableTensionPlanner instance for physics calculations.")]
-    public CableTensionPlanner tensionPlanner;
-
     [Tooltip("The ForcePlateManager instance for reading force plate data.")]
     public ForcePlateManager forcePlateManager;
 
@@ -31,7 +28,19 @@ public class RobotController : MonoBehaviour
     [Tooltip("Enable or disable sending commands to LabVIEW.")]
     public bool isLabviewControlEnabled = true;
 
-    public BaseController<Wrench> controller;
+    [Header("Robot Geometry Configuration")]
+    [Tooltip("Number of cables in the system.")]
+    public int numCables = 8;
+
+    [Tooltip("Measured thickness of the chest in the anterior-posterior direction [m].")]
+    public float chestAPDistance = 0.2f;
+
+    [Tooltip("Measured width of the chest in the medial-lateral direction [m].")]
+    public float chestMLDistance = 0.3f;
+
+    private RobUSTDescription robotDescription;
+    private BaseController<Wrench> controller;
+    private CableTensionPlanner tensionPlanner;
 
     // Static frame reference captured only at startup to prevent drift
     private TrackerData robot_frame_tracker;
@@ -49,19 +58,25 @@ public class RobotController : MonoBehaviour
             return;
         }
 
-        if (!trackerManager.Initialize())
+        // Validate geometry configuration
+        if (chestAPDistance <= 0 || chestMLDistance <= 0)
         {
-            Debug.LogError("Failed to initialize TrackerManager.", this);
+            Debug.LogError("Chest dimensions must be positive values.", this);
             enabled = false;
             return;
         }
 
-        if (!tensionPlanner.Initialize())
-        {
-            Debug.LogError("Failed to initialize CableTensionPlanner.", this);
-            enabled = false;
-            return;
-        }
+        // Create RobUST description (single allocation at startup)
+        robotDescription = RobUSTDescription.Create(numCables, chestAPDistance, chestMLDistance);
+        Debug.Log($"RobUST description created: {numCables} cables, AP={chestAPDistance}m, ML={chestMLDistance}m");
+        tensionPlanner = new CableTensionPlanner(robotDescription);
+
+        // if (!trackerManager.Initialize())
+        // {
+        //     Debug.LogError("Failed to initialize TrackerManager.", this);
+        //     enabled = false;
+        //     return;
+        // }
         if (!forcePlateManager.Initialize())
         {
             Debug.LogError("Failed to initialize ForcePlateManager.", this);
@@ -79,7 +94,7 @@ public class RobotController : MonoBehaviour
         trackerManager.GetFrameTrackerData(out robot_frame_tracker);
 
         // Initialize visualizer now that frame pose is available
-        ReadOnlySpan<Vector3> pulleyPositions = tensionPlanner.GetPulleyPositionsInRobotFrame();
+        ReadOnlySpan<Vector3> pulleyPositions = robotDescription.FramePulleyPositionsVec3;
         if (!visualizer.Initialize(robot_frame_tracker.PoseMatrix, pulleyPositions))
         {
             Debug.LogError("Failed to initialize RobotVisualizer.", this);
@@ -124,8 +139,8 @@ public class RobotController : MonoBehaviour
             trackerManager.GetCoMTrackerData(out rawComData);
             trackerManager.GetEndEffectorTrackerData(out rawEndEffectorData);
 
-            // 2. Update visuals (delegated; safe because startup validation guarantees references)
-            visualizer.UpdateTrackerVisuals(rawComData, rawEndEffectorData, robot_frame_tracker);
+            // 2. Cache tracker data for visualization (thread-safe, applied in visualizer's Update())
+            visualizer.SetTrackerData(rawComData, rawEndEffectorData, robot_frame_tracker);
 
             // Call GetEEPositionRelativeToFrame and print its position
             Matrix4x4 eePose_robotFrame = GetEEPoseRelativeToFrame();
@@ -186,7 +201,6 @@ public class RobotController : MonoBehaviour
     {
         bool allValid = true;
         if (trackerManager == null) { Debug.LogError("Module not assigned in Inspector: trackerManager", this); allValid = false; }
-        if (tensionPlanner == null) { Debug.LogError("Module not assigned in Inspector: tensionPlanner", this); allValid = false; }
         if (forcePlateManager == null) { Debug.LogError("Module not assigned in Inspector: forcePlateManager", this); allValid = false; }
         if (tcpCommunicator == null) { Debug.LogError("Module not assigned in Inspector: tcpCommunicator", this); allValid = false; }
         if (visualizer == null) { Debug.LogError("Visualizer not assigned in Inspector: visualizer", this); allValid = false; }

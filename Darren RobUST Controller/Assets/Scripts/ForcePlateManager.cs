@@ -157,8 +157,7 @@ public class ForcePlateManager : MonoBehaviour
     private void TransformForcePlateData(in ForcePlateData data_local, out ForcePlateData data_global)
     {
         // Use stack-allocated temporary variables
-        double3 force_global = default;
-        double3 cop_global = default;
+        double3 force_global, cop_global;
         
         // Project the force (rotation only)
         Vector3 force_vector3 = (float3)data_local.Force; 

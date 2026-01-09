@@ -4,6 +4,9 @@ using System;
 /// Handles all visualization elements for the robot system that already exist:
 /// tracker visuals (CoM, End-Effector, Frame) and the visualization camera.
 /// Converts from RH robot frame (OpenVR) to Unity's LH frame for rendering.
+/// 
+/// Thread-safe: External code can call SetTrackerData() from any thread.
+/// Actual transform updates happen in Update() on the main thread.
 /// </summary>
 public class RobotVisualizer : MonoBehaviour
 {
@@ -26,6 +29,14 @@ public class RobotVisualizer : MonoBehaviour
 
     // Pulley spheres: simple, init-only visualization
     private float pulleySphereSize = 0.2f;
+
+    // Thread-safe cached tracker data (written from control thread, read in Update)
+    private readonly object dataLock = new object();
+    private TrackerData cachedComData;
+    private TrackerData cachedEndEffectorData;
+    private TrackerData cachedFrameData;
+    private volatile bool hasNewData = false;
+    private bool isInitialized = false;
 
     // RH (robot/OpenVR) -> Unity (LH) mirror matrix
     private static readonly Matrix4x4 mirror_matrix = new Matrix4x4(
@@ -58,7 +69,7 @@ public class RobotVisualizer : MonoBehaviour
         frameTrackerVisual.localScale = .2f * new Vector3(1, 1, -1);
 
         // Update the frame tracker visual using the static frame
-        UpdateVisual(frameTrackerVisual, framePoseMatrix);
+        ApplyVisual(frameTrackerVisual, framePoseMatrix);
         UpdateVisualizationCamera();
 
         // Create pulley spheres once at startup using Unity primitives
@@ -66,35 +77,62 @@ public class RobotVisualizer : MonoBehaviour
         {
             // Compute world position in RH frame: frame * local
             Vector3 worldRH = framePoseMatrix.MultiplyPoint3x4(pulleyPositionsRobotFrame[i]);
-            // Use UpdateVisual to convert RH->LH by constructing a pose with translation only
+            // Use ApplyVisual to convert RH->LH by constructing a pose with translation only
             Matrix4x4 pulleyPose = Matrix4x4.TRS(worldRH, Quaternion.identity, Vector3.one);
 
             var sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             sphere.name = $"Pulley_{i + 1}";
             sphere.transform.localScale = Vector3.one * pulleySphereSize;
-            UpdateVisual(sphere.transform, pulleyPose); // Place in Unity world via UpdateVisual (handles mirror)
+            ApplyVisual(sphere.transform, pulleyPose); // Place in Unity world via ApplyVisual (handles mirror)
             
             // Remove collider to avoid interactions
             var col = sphere.GetComponent<Collider>();
             if (col != null) Destroy(col);
         }
 
+        isInitialized = true;
         return true;
     }
 
     /// <summary>
-    /// Update the three tracker visuals using current (RH) pose matrices.
+    /// Thread-safe: Cache new tracker data to be applied on next Update().
+    /// Call this from control thread.
     /// </summary>
-    public void UpdateTrackerVisuals(TrackerData comData, TrackerData endEffectorData, TrackerData frameData)
+    public void SetTrackerData(TrackerData comData, TrackerData endEffectorData, TrackerData frameData)
     {
-        UpdateVisual(comTrackerVisual, comData.PoseMatrix);
-        UpdateVisual(endEffectorVisual, endEffectorData.PoseMatrix);
-        UpdateVisual(frameTrackerVisual, frameData.PoseMatrix);
+        lock (dataLock)
+        {
+            cachedComData = comData;
+            cachedEndEffectorData = endEffectorData;
+            cachedFrameData = frameData;
+            hasNewData = true;
+        }
+    }
+
+    /// <summary>
+    /// Main thread: Apply cached tracker data to Unity transforms.
+    /// </summary>
+    private void Update()
+    {
+        if (!isInitialized || !hasNewData) return;
+
+        TrackerData com, ee, frame;
+        lock (dataLock)
+        {
+            com = cachedComData;
+            ee = cachedEndEffectorData;
+            frame = cachedFrameData;
+            hasNewData = false;
+        }
+
+        ApplyVisual(comTrackerVisual, com.PoseMatrix);
+        ApplyVisual(endEffectorVisual, ee.PoseMatrix);
+        ApplyVisual(frameTrackerVisual, frame.PoseMatrix);
     }
 
     /// <summary>
     /// Updates the visualization camera to position it relative to the robot frame
-    /// and look at the frame tracker visual. assumes frame tracker visual is already up to date.
+    /// and look at the frame tracker visual. Assumes frame tracker visual is already up to date.
     /// </summary>
     public void UpdateVisualizationCamera()
     {
@@ -113,8 +151,9 @@ public class RobotVisualizer : MonoBehaviour
     /// Applies RH->LH conversion and updates a visual Transform from a pose matrix.
     /// Robot coordinate system: X=right, Y=forward, Z=up
     /// Unity coordinate system: X=right, Y=up, Z=forward
+    /// Must be called from main thread.
     /// </summary>
-    private static void UpdateVisual(Transform visual, Matrix4x4 raw_poseMatrix)
+    private static void ApplyVisual(Transform visual, Matrix4x4 raw_poseMatrix)
     {
         Matrix4x4 unityMatrix = mirror_matrix * raw_poseMatrix * mirror_matrix;
         visual.position = unityMatrix.GetColumn(3);
