@@ -160,6 +160,7 @@ public class RobotController : MonoBehaviour
             );
 
             MapTensionsToMotors(solverResult, motor_command);
+
             // Send the calculated tensions to LabVIEW
             tcpCommunicator.SetClosedLoopControl();
             tcpCommunicator.UpdateTensionSetpoint(motor_command);

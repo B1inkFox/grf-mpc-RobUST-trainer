@@ -10,6 +10,9 @@ using System;
 /// </summary>
 public class RobotVisualizer : MonoBehaviour
 {
+    [Tooltip("Enable or disable the robot visualization.")]
+    public Boolean isActive = true;
+
     [Header("Tracker Visuals")]
     [Tooltip("A visual representation of the CoM tracker.")]
     public Transform comTrackerVisual;
@@ -68,8 +71,6 @@ public class RobotVisualizer : MonoBehaviour
         endEffectorVisual.localScale = .2f * new Vector3(1, 1, -1);
         frameTrackerVisual.localScale = .2f * new Vector3(1, 1, -1);
 
-        // Update the frame tracker visual using the static frame
-        ApplyVisual(frameTrackerVisual, framePoseMatrix);
         UpdateVisualizationCamera();
 
         // Create pulley spheres once at startup using Unity primitives
@@ -114,7 +115,7 @@ public class RobotVisualizer : MonoBehaviour
     /// </summary>
     private void Update()
     {
-        if (!isInitialized || !hasNewData) return;
+        if (!isInitialized || !hasNewData || !isActive) return;
 
         TrackerData com, ee, frame;
         lock (dataLock)
@@ -124,7 +125,7 @@ public class RobotVisualizer : MonoBehaviour
             frame = cachedFrameData;
             hasNewData = false;
         }
-
+    
         ApplyVisual(comTrackerVisual, com.PoseMatrix);
         ApplyVisual(endEffectorVisual, ee.PoseMatrix);
         ApplyVisual(frameTrackerVisual, frame.PoseMatrix);
