@@ -112,7 +112,7 @@ public class CableTensionPlanner
 
             // Calculate torque arm: from belt center to attachment point
             double3 r_local = attachLocal - robot.BeltCenter_EE_Frame;
-            double3 r_robotFrame = TransformPoint(eeToRobotFrame, r_local);
+            double3 r_robotFrame = TransformVector(eeToRobotFrame, r_local);
             
             // Torque component using SIMD cross product
             double3 torque_i = cross(r_robotFrame, u_i);
@@ -197,4 +197,16 @@ public class CableTensionPlanner
         double4 result = mul(m, p4);
         return result.xyz;
     }
+
+    /// <summary>
+    /// Transform vector by 4x4 matrix (rotation only, no translation).
+    /// Uses SIMD mul operation.
+    /// </summary>
+    private static double3 TransformVector(double4x4 m, double3 v)
+    {
+        double4 v4 = new double4(v, 0.0);   // w = 0
+        double4 result = mul(m, v4);
+        return result.xyz;
+    }
+
 }
