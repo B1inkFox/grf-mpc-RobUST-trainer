@@ -151,25 +151,24 @@ public class ForcePlateManager : MonoBehaviour
     }  
 
     /// <summary>
-    /// Transforms a ForcePlateData from the local vicon frame into the global robot frame
+    /// Transforms a ForcePlateData from the local Vicon frame into the global robot frame
     /// using the existing ForcePlateCalibrator `calib`. Zero allocations.
     /// </summary>
     private void TransformForcePlateData(in ForcePlateData data_local, out ForcePlateData data_global)
     {
-        // Use stack-allocated temporary variables
-        double3 force_global, cop_global;
-        
+        // Calibrator now operates directly on double3.
+        double3 force_global;
+        double3 cop_global;
+
         // Project the force (rotation only)
-        Vector3 force_vector3 = (float3)data_local.Force; 
-        calib.ProjectForce(force_vector3, out force_global);
+        calib.ProjectForce(in data_local.Force, out force_global);
 
         // Project the center of pressure (mm → m, then apply rotation + translation)
-        Vector3 cop_vector3 = (float3)data_local.CenterOfPressure;
-        calib.ProjectPosition(cop_vector3, out cop_global);
+        calib.ProjectPosition(in data_local.CenterOfPressure, out cop_global);
 
-        // Assign to output
         data_global = new ForcePlateData(force_global, cop_global);
     }
+
     
     /// <summary>
     /// Clean up resources on application quit

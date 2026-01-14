@@ -2,6 +2,7 @@ using UnityEngine;
 using Unity.Mathematics;
 using System;
 using System.Threading;
+using static Unity.Mathematics.math;
 
 /// <summary>
 /// Main controller for the cable-driven robot.
@@ -143,7 +144,7 @@ public class RobotController : MonoBehaviour
             visualizer.SetTrackerData(rawComData, rawEndEffectorData, robot_frame_tracker);
 
             // Call GetEEPositionRelativeToFrame and print its position
-            Matrix4x4 eePose_robotFrame = GetEEPoseRelativeToFrame();
+            double4x4 eePose_robotFrame = GetEEPoseRelativeToFrame();
             //Debug.Log($"End Effector Pose Relative to Frame:\n" +
             //     $"[{eePose_robotFrame.m00:F4}, {eePose_robotFrame.m01:F4}, {eePose_robotFrame.m02:F4}, {eePose_robotFrame.m03:F4}]\n" +
             //     $"[{eePose_robotFrame.m10:F4}, {eePose_robotFrame.m11:F4}, {eePose_robotFrame.m12:F4}, {eePose_robotFrame.m13:F4}]\n" +
@@ -185,16 +186,32 @@ public class RobotController : MonoBehaviour
     /// Helper method to get chest tracker's position relative to the static frame reference.
     /// Useful for manually recording pulley positions during calibration.
     /// </summary>
-    /// <returns>Position relative to frame tracker, or Vector3.zero if not found</returns>
-    public Matrix4x4 GetEEPoseRelativeToFrame()
+    /// <returns>Position relative to frame tracker </returns>
+    public double4x4 GetEEPoseRelativeToFrame()
     {
-        TrackerData ee_data;
-        trackerManager.GetEndEffectorTrackerData(out ee_data);
-        Matrix4x4 eePose = ee_data.PoseMatrix;
-        Matrix4x4 framePose_inverse = robot_frame_tracker.PoseMatrix.inverse;
-        Matrix4x4 relativePose = framePose_inverse * eePose;
-        return relativePose;
+        // Grab EE pose (UnityEngine.Matrix4x4 stored in TrackerData)
+        trackerManager.GetEndEffectorTrackerData(out TrackerData eeData);
+
+        // Convert both matrices to Unity.Mathematics.double4x4
+        double4x4 eePose = ToDouble4x4(eeData.PoseMatrix);
+        double4x4 framePose = ToDouble4x4(robot_frame_tracker.PoseMatrix);
+
+        // Compute relative pose: frame^-1 * ee
+        double4x4 frameInv = inverse(framePose);
+        return mul(frameInv, eePose);
     }
+
+    // Local helper (keep near RobotController; same as you already used elsewhere)
+    private static double4x4 ToDouble4x4(in Matrix4x4 m)
+    {
+        return new double4x4(
+            m.m00, m.m01, m.m02, m.m03,
+            m.m10, m.m11, m.m12, m.m13,
+            m.m20, m.m21, m.m22, m.m23,
+            m.m30, m.m31, m.m32, m.m33
+        );
+    }
+
 
     // Validates that all required module references are assigned in the Inspector.
     // returns True if all modules are assigned, false otherwise.
