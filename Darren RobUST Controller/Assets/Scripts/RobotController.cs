@@ -2,7 +2,6 @@ using UnityEngine;
 using Unity.Mathematics;
 using System;
 using System.Threading;
-using static Unity.Mathematics.math;
 
 /// <summary>
 /// Main controller for the cable-driven robot.
@@ -197,8 +196,8 @@ public class RobotController : MonoBehaviour
         double4x4 framePose = ToDouble4x4(robot_frame_tracker.PoseMatrix);
 
         // Compute relative pose: frame^-1 * ee
-        double4x4 frameInv = inverse(framePose);
-        return mul(frameInv, eePose);
+        double4x4 frameInv = math.inverse(framePose);
+        return math.mul(frameInv, eePose);
     }
 
     // Local helper (keep near RobotController; same as you already used elsewhere)

@@ -1,7 +1,6 @@
 // ForcePlateCalibrator.cs
 using UnityEngine;                 // Only for Vector3 overload compatibility + Debug if needed
 using Unity.Mathematics;
-using static Unity.Mathematics.math;
 
 /// <summary>
 /// Calibrates a rectangular plate's local frame O1 to global frame O0 via
@@ -99,14 +98,14 @@ public sealed class ForcePlateCalibrator
         double3x3 R = RotationFromQuaternion(q);
 
         // Right-handedness guard (rare)
-        if (det(R) < 0.0)
+        if (math.determinant(R) < 0.0)
         {
             // Flip one column to fix reflection
             R.c2 = -R.c2;
         }
 
         // ---- 8) Translation t = cMeas - R * cModel ----
-        double3 t = cMeas - mul(R, cModel);
+        double3 t = cMeas - math.mul(R, cModel);
 
         R_only = R;
         t_O0   = t;
@@ -121,7 +120,7 @@ public sealed class ForcePlateCalibrator
     public void ProjectPosition(in double3 pO1_mm, out double3 pO0_m)
     {
         // pO0 = t + R * (mmToM * pO1_mm)
-        pO0_m = t_O0 + mul(R_only, mmToM * pO1_mm);
+        pO0_m = t_O0 + math.mul(R_only, mmToM * pO1_mm);
     }
 
     /// <summary>
@@ -138,7 +137,7 @@ public sealed class ForcePlateCalibrator
     /// </summary>
     public void ProjectForce(in double3 fO1, out double3 fO0)
     {
-        fO0 = mul(R_only, fO1);
+        fO0 = math.mul(R_only, fO1);
     }
 
     /// <summary>
@@ -199,13 +198,13 @@ public sealed class ForcePlateCalibrator
         double4 v = new double4(1.0, 0.0, 0.0, 0.0);
         for (int i = 0; i < iters; i++)
         {
-            double4 Kv = mul(K, v);
-            double n = length(Kv);
+            double4 Kv = math.mul(K, v);
+            double n = math.length(Kv);
             if (n < 1e-14) break;
             v = Kv / n;
         }
         // Normalize defensively
-        double nv = length(v);
+        double nv = math.length(v);
         return (nv > 1e-14) ? (v / nv) : new double4(1.0, 0.0, 0.0, 0.0);
     }
 
