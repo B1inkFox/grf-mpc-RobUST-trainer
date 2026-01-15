@@ -95,6 +95,9 @@ public class ForcePlateManager : MonoBehaviour
     /// </summary>
     private void ForcePlateSamplingLoop()
     {
+        double3 rawForce, rawCop;
+        double3 finalForce, finalCop;
+
         while (isRunning)
         {
             viconClient.GetFrame();
@@ -102,26 +105,21 @@ public class ForcePlateManager : MonoBehaviour
             // Process each force plate directly
             for (int i = 0; i < numForcePlates; i++)
             {
-                // Get force in global coordinate system
+                // Get force & CoP in global coordinate system
                 Output_GetGlobalForceVector forceResult = viconClient.GetGlobalForceVector((uint)i);
-                // Get center of pressure
                 Output_GetGlobalCentreOfPressure copResult = viconClient.GetGlobalCentreOfPressure((uint)i);
+
+                rawForce = new double3(forceResult.ForceVector[0], forceResult.ForceVector[1], forceResult.ForceVector[2]);
+                rawCop = new double3(copResult.CentreOfPressure[0], copResult.CentreOfPressure[1], copResult.CentreOfPressure[2]);
+
+                // Transform immediately once
+                calib.ProjectForce(in rawForce, out finalForce);
+                calib.ProjectPosition(in rawCop, out finalCop);
 
                 // Thread-safe update directly to the array
                 lock (dataLock)
                 {
-                    forcePlateDataArray[i] = new ForcePlateData(
-                        new double3(
-                            (float)forceResult.ForceVector[0],
-                            (float)forceResult.ForceVector[1],
-                            (float)forceResult.ForceVector[2]
-                        ),
-                        new double3(
-                            (float)copResult.CentreOfPressure[0],
-                            (float)copResult.CentreOfPressure[1],
-                            (float)copResult.CentreOfPressure[2]
-                        )
-                    );
+                    forcePlateDataArray[i] = new ForcePlateData(finalForce, finalCop);
                 }
             }
 
@@ -130,9 +128,9 @@ public class ForcePlateManager : MonoBehaviour
 
     /// <summary>
     /// Gets the force plate data for a specific plate with zero allocations.
-    /// Thread-safe access.
+    /// Thread-safe access. Returns fully calibrated robot-frame data.
     /// </summary>
-    public void GetForcePlateData(int plateIndex, out ForcePlateData data, bool in_global_frame = true)
+    public void GetForcePlateData(int plateIndex, out ForcePlateData data)
     {
         lock (dataLock)
         {
@@ -143,31 +141,12 @@ public class ForcePlateManager : MonoBehaviour
                 return;
             }
             
-            if (in_global_frame)
-                TransformForcePlateData(in forcePlateDataArray[plateIndex], out data);
-            else
-                data = forcePlateDataArray[plateIndex];// Direct assignment from array (its a struct)
+            // Data is already transformed in the thread loop
+            data = forcePlateDataArray[plateIndex];
         }
     }  
 
-    /// <summary>
-    /// Transforms a ForcePlateData from the local Vicon frame into the global robot frame
-    /// using the existing ForcePlateCalibrator `calib`. Zero allocations.
-    /// </summary>
-    private void TransformForcePlateData(in ForcePlateData data_local, out ForcePlateData data_global)
-    {
-        // Calibrator now operates directly on double3.
-        double3 force_global;
-        double3 cop_global;
 
-        // Project the force (rotation only)
-        calib.ProjectForce(in data_local.Force, out force_global);
-
-        // Project the center of pressure (mm → m, then apply rotation + translation)
-        calib.ProjectPosition(in data_local.CenterOfPressure, out cop_global);
-
-        data_global = new ForcePlateData(force_global, cop_global);
-    }
 
     
     /// <summary>
