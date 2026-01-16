@@ -1,5 +1,7 @@
 using UnityEngine;
 using Unity.Mathematics;
+using Unity.Profiling;
+
 using System;
 using System.Threading;
 
@@ -10,6 +12,9 @@ using System.Threading;
 /// </summary>
 public class RobotController : MonoBehaviour
 {
+    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Category, "Controller Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Category, "Controller Execution Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
+
     [Header("Module References")]
     [Tooltip("The TrackerManager instance that provides tracker data.")]
     public TrackerManager trackerManager;
@@ -113,9 +118,13 @@ public class RobotController : MonoBehaviour
         // controller = new MPCController(0.05, 10);
         /* We need to initialize the controller here */
 
-        controllerThread = new Thread(controlLoop);
-        controllerThread.IsBackground = true;
-        controllerThread.Priority = System.Threading.ThreadPriority.AboveNormal;
+        controllerThread = new Thread(controlLoop)
+        {
+            Name = "Robot Controller Main",
+            IsBackground = true,
+            Priority = System.Threading.ThreadPriority.AboveNormal
+        };
+
         isRunning = true;
         controllerThread.Start();
     }
@@ -131,10 +140,17 @@ public class RobotController : MonoBehaviour
         Span<double> motor_command = stackalloc double[14];
 
         double frequency = System.Diagnostics.Stopwatch.Frequency;
+        double ticksToNs = 1_000_000_000.0 / frequency;
         long intervalTicks = (long)(frequency / 100.0); // Control loop at 100 Hz
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
+        long lastLoopTick = System.Diagnostics.Stopwatch.GetTimestamp();
+        
         while (isRunning)
         {
+            long loopStartTick = System.Diagnostics.Stopwatch.GetTimestamp();
+            s_IntervalNs.Value = (long)((loopStartTick - lastLoopTick) * ticksToNs);
+            lastLoopTick = loopStartTick;
+
             // 1. Get the latest raw tracker data (in the arbitrary, RIGHT-HANDED OpenVR/Vive coordinate system).
             trackerManager.GetCoMTrackerData(out rawComData);
             trackerManager.GetEndEffectorTrackerData(out rawEndEffectorData);
@@ -142,29 +158,23 @@ public class RobotController : MonoBehaviour
             // 2. Cache tracker data for visualization (thread-safe, applied in visualizer's Update())
             visualizer.SetTrackerData(rawComData, rawEndEffectorData, robot_frame_tracker);
 
-            // Call GetEEPositionRelativeToFrame and print its position
-            double4x4 eePose_robotFrame = GetEEPoseRelativeToFrame();
-            //Debug.Log($"End Effector Pose Relative to Frame:\n" +
-            //     $"[{eePose_robotFrame.m00:F4}, {eePose_robotFrame.m01:F4}, {eePose_robotFrame.m02:F4}, {eePose_robotFrame.m03:F4}]\n" +
-            //     $"[{eePose_robotFrame.m10:F4}, {eePose_robotFrame.m11:F4}, {eePose_robotFrame.m12:F4}, {eePose_robotFrame.m13:F4}]\n" +
-            //     $"[{eePose_robotFrame.m20:F4}, {eePose_robotFrame.m21:F4}, {eePose_robotFrame.m22:F4}, {eePose_robotFrame.m23:F4}]\n" +
-            //     $"[{eePose_robotFrame.m30:F4}, {eePose_robotFrame.m31:F4}, {eePose_robotFrame.m32:F4}, {eePose_robotFrame.m33:F4}]");
-
             //Here we parse the control effort that we obtained from the controller, to be implemented
             Wrench controllerOutput = new Wrench { Force = double3.zero, Torque = double3.zero };
 
-            double[] solverResult = tensionPlanner.CalculateTensions(
-                rawEndEffectorData.PoseMatrix,
-                controllerOutput,
-                robot_frame_tracker.PoseMatrix
-            );
+            // double[] solverResult = tensionPlanner.CalculateTensions(
+            //     rawEndEffectorData.PoseMatrix,
+            //     controllerOutput,
+            //     robot_frame_tracker.PoseMatrix
+            // );
 
-            MapTensionsToMotors(solverResult, motor_command);
+            // MapTensionsToMotors(solverResult, motor_command);
 
             // Send the calculated tensions to LabVIEW
             tcpCommunicator.SetClosedLoopControl();
             tcpCommunicator.UpdateTensionSetpoint(motor_command);
 
+            s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
+            
             while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime)
             {
                 // (BURN CPU cycles to hold timing precision)

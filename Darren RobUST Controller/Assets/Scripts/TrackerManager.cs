@@ -1,4 +1,6 @@
 using UnityEngine;
+using Unity.Profiling;
+
 using System.Threading;
 using System;
 using Valve.VR;
@@ -10,6 +12,9 @@ using Valve.VR;
 /// </summary>
 public class TrackerManager : MonoBehaviour
 {
+    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Category, "Tracker Manager Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Category, "Tracker Manager Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
+
     [Header("Tracker Serial Numbers")]
     [Tooltip("Serial number for the Center of Mass (CoM) tracker.")]
     public string comTrackerSerial = "LHR-FFFFFFFF"; 
@@ -62,9 +67,12 @@ public class TrackerManager : MonoBehaviour
 
             // Start the high-frequency tracking thread
             isRunning = true;
-            trackingThread = new Thread(TrackingLoop);
-            trackingThread.IsBackground = true;
-            trackingThread.Priority = System.Threading.ThreadPriority.AboveNormal;
+            trackingThread = new Thread(TrackingLoop)
+            {
+                IsBackground = true,
+                Name = "Tracker Manager Thread",
+                Priority = System.Threading.ThreadPriority.AboveNormal
+            };
             trackingThread.Start();
 
             Debug.Log("TrackerManager initialized - Direct OpenVR tracking at 90Hz");
@@ -143,11 +151,17 @@ public class TrackerManager : MonoBehaviour
     private void TrackingLoop()
     {
         double frequency = System.Diagnostics.Stopwatch.Frequency;
+        double ticksToNs = 1_000_000_000.0 / frequency;
         long intervalTicks = (long)(frequency / 90.0);
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
+        long lastLoopTick = System.Diagnostics.Stopwatch.GetTimestamp();
 
         while (isRunning)
         {
+            long loopStartTick = System.Diagnostics.Stopwatch.GetTimestamp();
+            s_IntervalNs.Value = (long)((loopStartTick - lastLoopTick) * ticksToNs);
+            lastLoopTick = loopStartTick;
+
             vrSystem.GetDeviceToAbsoluteTrackingPose(ETrackingUniverseOrigin.TrackingUniverseRawAndUncalibrated, 0, trackedDevicePoses);
 
             lock (dataLock)
@@ -165,6 +179,8 @@ public class TrackerManager : MonoBehaviour
                     UpdateMatrixFromOpenVR(trackedDevicePoses[frameTrackerIndex].mDeviceToAbsoluteTracking, ref frameTrackerData.PoseMatrix);
                 }
             }
+
+            s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
             
             while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime)
             {

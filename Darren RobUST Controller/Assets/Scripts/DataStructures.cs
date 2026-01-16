@@ -1,5 +1,8 @@
 using UnityEngine;
-using Unity.Mathematics; 
+using Unity.Mathematics;
+using Unity.Profiling;
+
+public static class RobotProfiler { public static readonly ProfilerCategory Category = new("Robot Threads"); }
 
 /// <summary>
 /// A simple data structure to hold the position and rotation of a tracker.

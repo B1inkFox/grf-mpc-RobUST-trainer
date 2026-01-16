@@ -1,5 +1,7 @@
 using UnityEngine;
 using Unity.Mathematics; 
+using Unity.Profiling;
+
 using System;
 using System.Threading;
 using ViconDataStreamSDK.CSharp;
@@ -10,6 +12,9 @@ using ViconDataStreamSDK.CSharp;
 /// </summary>
 public class ForcePlateManager : MonoBehaviour
 {    
+    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Category, "ForcePlate Manager Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Category, "ForcePlate Manager Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
+
     [Tooltip("Hard-set number of force plates")]
     public int numForcePlates = 2;
 
@@ -43,9 +48,12 @@ public class ForcePlateManager : MonoBehaviour
 
         // Start the sampling thread
         isRunning = true;
-        forcePlateThread = new Thread(ForcePlateSamplingLoop);
-        forcePlateThread.IsBackground = true;
-        forcePlateThread.Priority = System.Threading.ThreadPriority.AboveNormal;
+        forcePlateThread = new Thread(ForcePlateSamplingLoop)
+        {
+            IsBackground = true,
+            Name = "Force Plate Thread",
+            Priority = System.Threading.ThreadPriority.AboveNormal
+        };
         forcePlateThread.Start();
 
         Debug.Log($"ForcePlateManager initialized successfully on port {serverPort}.");
@@ -98,9 +106,17 @@ public class ForcePlateManager : MonoBehaviour
         double3 rawForce, rawCop;
         double3 finalForce, finalCop;
 
+        double frequency = System.Diagnostics.Stopwatch.Frequency;
+        double ticksToNs = 1_000_000_000.0 / frequency;
+        long lastLoopTick = System.Diagnostics.Stopwatch.GetTimestamp();
+
         while (isRunning)
         {
-            viconClient.GetFrame();
+            viconClient.GetFrame(); // Blocks until Vicon pushes a frame
+
+            long loopStartTick = System.Diagnostics.Stopwatch.GetTimestamp();
+            s_IntervalNs.Value = (long)((loopStartTick - lastLoopTick) * ticksToNs);
+            lastLoopTick = loopStartTick;
 
             // Process each force plate directly
             for (int i = 0; i < numForcePlates; i++)
@@ -116,13 +132,15 @@ public class ForcePlateManager : MonoBehaviour
                 calib.ProjectForce(in rawForce, out finalForce);
                 calib.ProjectPosition(in rawCop, out finalCop);
 
-                // Thread-safe update directly to the array
+                ForcePlateData plateData = new ForcePlateData(finalForce, finalCop);
+
                 lock (dataLock)
                 {
-                    forcePlateDataArray[i] = new ForcePlateData(finalForce, finalCop);
+                    forcePlateDataArray[i] = plateData;
                 }
             }
 
+            s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
         }
     }
 

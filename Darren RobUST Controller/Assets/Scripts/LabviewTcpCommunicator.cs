@@ -1,12 +1,10 @@
 using UnityEngine;
+using Unity.Profiling;
+
 using System;
 using System.Net.Sockets;
 using System.Threading;
-using System.Security.AccessControl;
-using System.ComponentModel;
-using System.Data.SqlTypes;
 using System.Diagnostics;
-using System.Drawing;
 
 /// <summary>
 /// Handles threaded TCP communication with LabVIEW, continuously sending the latest tension data.
@@ -14,6 +12,9 @@ using System.Drawing;
 /// </summary>
 public class LabviewTcpCommunicator : MonoBehaviour
 {
+    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Category, "Labview TCP Communicator Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Category, "Labview TCP Communicator Send Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
+
     [Header("Network Settings")]
     public string serverAddress = "10.0.0.62";
     public int serverPort = 8053;
@@ -24,7 +25,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
     
     // Threading
     private Thread sendThread;
-    private double sendFrequency_Hz = 500.0; 
+    private double sendFrequency_Hz = 1000.0; 
     private volatile bool isRunning = false;
     private readonly object dataLock = new object();
     private volatile char controlModeCode = 'O';
@@ -33,7 +34,6 @@ public class LabviewTcpCommunicator : MonoBehaviour
     private double[] tensions;
 
     // --- NEW: Zero-Allocation Buffers ---
-    private double[] sendTensions; // Thread-local copy of data
     private byte[] sendBuffer;     // Raw bytes to send to TCP
     private char[] formatBuffer;   // Temp buffer for double->string conversion
 
@@ -46,7 +46,6 @@ public class LabviewTcpCommunicator : MonoBehaviour
     {
         // Pre-allocate arrays based on cable count
         tensions = new double[14];
-        sendTensions = new double[14];
 
         // NEW: Allocate buffers once. 
         // Size calc: 1 byte (Mode) + 14 * (1 comma + ~9 chars) + 2 newline = ~150 bytes. 
@@ -98,9 +97,12 @@ public class LabviewTcpCommunicator : MonoBehaviour
             
             IsConnected = true;
             isRunning = true;
-            sendThread = new Thread(SendLoop) { IsBackground = true };
-            // Crucial: This allows us to bully other threads, but we still need the while loop below
-            sendThread.Priority = System.Threading.ThreadPriority.Highest; 
+            sendThread = new Thread(SendLoop)
+            {
+                IsBackground = true,
+                Name = "Labview TCP Thread",
+                Priority = System.Threading.ThreadPriority.Highest
+            };
             sendThread.Start();
             
             UnityEngine.Debug.Log("Connected to LabVIEW server.");
@@ -112,7 +114,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
     }
 
     /// <summary>
-    /// Background thread that continuously sends data at precise 500Hz.
+    /// Background thread that continuously sends data at precise frequency.
     /// </summary>
     private void SendLoop()
     {
@@ -123,18 +125,20 @@ public class LabviewTcpCommunicator : MonoBehaviour
             return;
         }
 
+        double[] sendTensions = new double[tensions.Length];
+
         // Timing constants
-        double frequency = System.Diagnostics.Stopwatch.Frequency;
+        double frequency = Stopwatch.Frequency;
+        double ticksToNs = 1_000_000_000.0 / frequency;
         long intervalTicks = (long)(frequency / sendFrequency_Hz);
-        long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
+        long nextTargetTime = Stopwatch.GetTimestamp() + intervalTicks;
+        long lastLoopTick = Stopwatch.GetTimestamp();
         
         while (isRunning)
         {
-            while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime)
-            {
-                // BURN cycles to hold the core.
-                // We avoid Thread.SpinWait() here to prevent OS yielding.
-            }
+            long loopStartTick = Stopwatch.GetTimestamp();
+            s_IntervalNs.Value = (long)((loopStartTick - lastLoopTick) * ticksToNs);
+            lastLoopTick = loopStartTick;
 
             // Get thread-safe copy of tension data
             lock (dataLock)
@@ -143,21 +147,28 @@ public class LabviewTcpCommunicator : MonoBehaviour
             }
 
             int bytesToSend = FillPacketBuffer(sendTensions, sendBuffer);
-            try 
+            try
             {
                 networkStream.Write(sendBuffer, 0, bytesToSend);
             }
-            catch (Exception) 
+            catch (Exception)
             {
-                isRunning = false; // Stop if socket dies
+                isRunning = false;
                 break;
+            }
+
+            s_WorkloadNs.Value = (long)((Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
+
+            while (Stopwatch.GetTimestamp() < nextTargetTime)
+            {
+                // BURN cycles to hold the core.
             }
 
             // TIMING ADVANCE & DRIFT CORRECTION
             nextTargetTime += intervalTicks;
 
             // If we are late (processing took > 2ms), reset the pacer
-            long now = System.Diagnostics.Stopwatch.GetTimestamp();
+            long now = Stopwatch.GetTimestamp();
             if (now > nextTargetTime)
             {
                 nextTargetTime = now + intervalTicks;
