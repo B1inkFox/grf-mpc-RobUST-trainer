@@ -50,7 +50,7 @@ public class RobotController : MonoBehaviour
     // Static frame reference captured only at startup to prevent drift
     private TrackerData robot_frame_tracker;
     // The vector representing the direction of gravity in the world frame.
-    private static double3 gravity_vec = 9.81f * new double3(0, 0, -1);
+    private static double3 gravity_vec = 9.81f * stackalloc double3(0, 0, -1);
     private Thread controllerThread;
     private volatile bool isRunning = false;
 
@@ -107,7 +107,6 @@ public class RobotController : MonoBehaviour
             return;
         }
 
-        // Start the TCP connection if enabled
         if (isLabviewControlEnabled)
         {
             tcpCommunicator.ConnectToServer();
