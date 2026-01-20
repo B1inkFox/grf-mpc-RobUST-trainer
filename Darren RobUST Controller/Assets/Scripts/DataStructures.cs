@@ -2,8 +2,11 @@ using UnityEngine;
 using Unity.Mathematics;
 using Unity.Profiling;
 
-public static class RobotProfiler { public static readonly ProfilerCategory Category = new("Robot Threads"); }
-
+public static class RobotProfiler
+{
+    public static readonly ProfilerCategory Workloads = new("Robot Thread Workloads");
+    public static readonly ProfilerCategory Intervals = new("Robot Thread Intervals");
+}
 /// <summary>
 /// A simple data structure to hold the position and rotation of a tracker.
 /// NOTE: Data is stored in a RIGHT-HANDED coordinate system (OpenVR standard).

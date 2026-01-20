@@ -71,6 +71,7 @@ public class RobotVisualizer : MonoBehaviour
         endEffectorVisual.localScale = .2f * new Vector3(1, 1, -1);
         frameTrackerVisual.localScale = .2f * new Vector3(1, 1, -1);
 
+        ApplyVisual(frameTrackerVisual, framePoseMatrix);
         UpdateVisualizationCamera();
 
         // Create pulley spheres once at startup using Unity primitives

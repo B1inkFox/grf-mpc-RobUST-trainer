@@ -12,8 +12,8 @@ using ViconDataStreamSDK.CSharp;
 /// </summary>
 public class ForcePlateManager : MonoBehaviour
 {    
-    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Category, "ForcePlate Manager Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
-    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Category, "ForcePlate Manager Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Workloads, "ForcePlate Manager Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Intervals, "ForcePlate Manager Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
 
     [Tooltip("Hard-set number of force plates")]
     public int numForcePlates = 2;

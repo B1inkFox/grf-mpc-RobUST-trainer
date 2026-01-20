@@ -12,8 +12,8 @@ using System.Threading;
 /// </summary>
 public class RobotController : MonoBehaviour
 {
-    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Category, "Controller Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
-    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Category, "Controller Execution Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Workloads, "Controller Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Intervals, "Controller Execution Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
 
     [Header("Module References")]
     [Tooltip("The TrackerManager instance that provides tracker data.")]
@@ -76,12 +76,12 @@ public class RobotController : MonoBehaviour
         Debug.Log($"RobUST description created: {numCables} cables, AP={chestAPDistance}m, ML={chestMLDistance}m");
         tensionPlanner = new CableTensionPlanner(robotDescription);
 
-        // if (!trackerManager.Initialize())
-        // {
-        //     Debug.LogError("Failed to initialize TrackerManager.", this);
-        //     enabled = false;
-        //     return;
-        // }
+        if (!trackerManager.Initialize())
+        {
+            Debug.LogError("Failed to initialize TrackerManager.", this);
+            enabled = false;
+            return;
+        }
         if (!forcePlateManager.Initialize())
         {
             Debug.LogError("Failed to initialize ForcePlateManager.", this);

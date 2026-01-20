@@ -12,8 +12,8 @@ using System.Diagnostics;
 /// </summary>
 public class LabviewTcpCommunicator : MonoBehaviour
 {
-    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Category, "Labview TCP Communicator Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
-    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Category, "Labview TCP Communicator Send Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Workloads, "Labview TCP Communicator Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Intervals, "Labview TCP Communicator Send Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
 
     [Header("Network Settings")]
     public string serverAddress = "10.0.0.62";

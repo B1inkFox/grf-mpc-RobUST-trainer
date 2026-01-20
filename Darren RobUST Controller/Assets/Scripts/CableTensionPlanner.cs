@@ -10,7 +10,7 @@ using static Unity.Mathematics.math;
 /// OPTIMIZATION NOTES:
 /// - Uses Unity.Mathematics (SIMD-optimized) for all vector/matrix operations
 /// - Pre-allocates all arrays during construction - no runtime allocations
-/// - ALGLIB still allocates internally (~2-5KB per solve) - see CableTensionPlannerNative for zero-alloc version
+/// - ALGLIB still allocates internally (~9.2 KB per solve) - see CableTensionPlannerNative for zero-alloc version
 /// - Reuses QP state with warm-start for faster convergence
 /// </summary>
 public class CableTensionPlanner
@@ -85,7 +85,6 @@ public class CableTensionPlanner
     /// <summary>
     /// Calculates the desired cable tensions based on real-time tracker and force data.
     /// All calculations use Unity.Mathematics SIMD types for performance.
-    /// All calculations are performed in the RIGHT-HANDED coordinate system.
     /// </summary>
     /// <param name="endEffectorPose">The 4x4 pose matrix of the end-effector in the world coordinate system.</param>
     /// <param name="desiredWrench">The desired wrench (force and torque) to be applied by the cables.</param>

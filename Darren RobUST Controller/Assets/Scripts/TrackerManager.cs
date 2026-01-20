@@ -12,8 +12,8 @@ using Valve.VR;
 /// </summary>
 public class TrackerManager : MonoBehaviour
 {
-    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Category, "Tracker Manager Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
-    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Category, "Tracker Manager Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Workloads, "Tracker Manager Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
+    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Intervals, "Tracker Manager Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
 
     [Header("Tracker Serial Numbers")]
     [Tooltip("Serial number for the Center of Mass (CoM) tracker.")]
