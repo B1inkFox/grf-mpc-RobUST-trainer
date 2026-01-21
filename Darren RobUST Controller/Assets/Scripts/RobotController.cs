@@ -50,13 +50,18 @@ public class RobotController : MonoBehaviour
     // Static frame reference captured only at startup to prevent drift
     private TrackerData robot_frame_tracker;
     // The vector representing the direction of gravity in the world frame.
-    private static double3 gravity_vec = 9.81f * stackalloc double3(0, 0, -1);
+    private static double3 gravity_vec = 9.81f * new double3(0, 0, -1);
     private Thread controllerThread;
     private volatile bool isRunning = false;
 
 
     private void Start()
     {
+        using (System.Diagnostics.Process p = System.Diagnostics.Process.GetCurrentProcess())
+        {
+            p.PriorityClass = System.Diagnostics.ProcessPriorityClass.High;
+        }
+        
         if (!ValidateModules())
         {
             enabled = false; // Disable this script if modules are missing from inspector
