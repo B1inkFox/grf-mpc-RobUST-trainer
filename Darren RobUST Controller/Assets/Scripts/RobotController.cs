@@ -45,12 +45,9 @@ public class RobotController : MonoBehaviour
 
     private RobUSTDescription robotDescription;
     private BaseController<Wrench> controller;
-    private CableTensionPlanner tensionPlanner;
 
     // Static frame reference captured only at startup to prevent drift
     private TrackerData robot_frame_tracker;
-    // The vector representing the direction of gravity in the world frame.
-    private static double3 gravity_vec = 9.81f * new double3(0, 0, -1);
     private Thread controllerThread;
     private volatile bool isRunning = false;
 
@@ -61,7 +58,7 @@ public class RobotController : MonoBehaviour
         {
             p.PriorityClass = System.Diagnostics.ProcessPriorityClass.High;
         }
-        
+
         if (!ValidateModules())
         {
             enabled = false; // Disable this script if modules are missing from inspector
@@ -79,7 +76,6 @@ public class RobotController : MonoBehaviour
         // Create RobUST description (single allocation at startup)
         robotDescription = RobUSTDescription.Create(numCables, chestAPDistance, chestMLDistance);
         Debug.Log($"RobUST description created: {numCables} cables, AP={chestAPDistance}m, ML={chestMLDistance}m");
-        tensionPlanner = new CableTensionPlanner(robotDescription);
 
         if (!trackerManager.Initialize())
         {
@@ -118,9 +114,7 @@ public class RobotController : MonoBehaviour
         }
 
         // Initialize Controller Here
-        // Timestep resolution = 0.05 second, MPC prediction horizon = 10 timesteps
-        // controller = new MPCController(0.05, 10);
-        /* We need to initialize the controller here */
+        controller = new MPCSolver(0.05, 10, 4);
 
         controllerThread = new Thread(controlLoop)
         {
@@ -141,7 +135,7 @@ public class RobotController : MonoBehaviour
     private void controlLoop()
     {
         TrackerData rawComData, rawEndEffectorData;
-        Span<double> motor_command = stackalloc double[14];
+        Span<double> tension_command = stackalloc double[14];
 
         double frequency = System.Diagnostics.Stopwatch.Frequency;
         double ticksToNs = 1_000_000_000.0 / frequency;
@@ -163,19 +157,14 @@ public class RobotController : MonoBehaviour
             visualizer.SetTrackerData(rawComData, rawEndEffectorData, robot_frame_tracker);
 
             //Here we parse the control effort that we obtained from the controller, to be implemented
-            Wrench controllerOutput = new Wrench { Force = double3.zero, Torque = double3.zero };
+            // Compute cable tensions using the controller
+            // map tensions to tension_command array
 
-            // double[] solverResult = tensionPlanner.CalculateTensions(
-            //     rawEndEffectorData.PoseMatrix,
-            //     controllerOutput,
-            //     robot_frame_tracker.PoseMatrix
-            // );
 
-            // MapTensionsToMotors(solverResult, motor_command);
 
             // Send the calculated tensions to LabVIEW
             tcpCommunicator.SetClosedLoopControl();
-            tcpCommunicator.UpdateTensionSetpoint(motor_command);
+            tcpCommunicator.UpdateTensionSetpoint(tension_command);
 
             s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
             

@@ -85,7 +85,6 @@ public struct Wrench
 /// </summary>
 public abstract class BaseController<T>
 {
-    public abstract void Initialize();
     public abstract T computeNextControl();
 }
 
@@ -110,17 +109,32 @@ public sealed class RobUSTDescription
     /// <summary>Belt center in end-effector frame [m]</summary>
     public readonly double3 BeltCenter_EE_Frame;
     
+    
+    // ============ User Parameters ============
+    /// <summary>User body mass [kg]</summary>
+    public readonly double UserMass;
+    
+    /// <summary>User shoulder width [m]</summary>
+    public readonly double UserShoulderWidth;
+    
+    /// <summary>User trunk height from hip to shoulder [m]</summary>
+    public readonly double UserHeight;
+    
     /// <summary>Chest anterior-posterior distance [m]</summary>
     public readonly double ChestAPDistance;
     
     /// <summary>Chest medial-lateral distance [m]</summary>
     public readonly double ChestMLDistance;
 
-    private RobUSTDescription(int numCables, double chestAP, double chestML)
+    private RobUSTDescription(int numCables, double chestAP, double chestML, 
+                              double userMass, double shoulderWidth, double userHeight)
     {
         NumCables = numCables;
         ChestAPDistance = chestAP;
         ChestMLDistance = chestML;
+        UserMass = userMass;
+        UserShoulderWidth = shoulderWidth;
+        UserHeight = userHeight;
         
         FramePulleyPositions = new double3[numCables];
         FramePulleyPositionsVec3 = new Vector3[numCables];
@@ -165,8 +179,15 @@ public sealed class RobUSTDescription
     /// Factory method to create RobUST description from belt/chest configuration.
     /// All allocations happen here at init - nothing at runtime.
     /// </summary>
-    public static RobUSTDescription Create(int numCables, double chestAPDistance, double chestMLDistance)
+    /// <param name="numCables">Number of cables in the system</param>
+    /// <param name="chestAPDistance">Chest anterior-posterior distance [m]</param>
+    /// <param name="chestMLDistance">Chest medial-lateral distance [m]</param>
+    /// <param name="userMass">User body mass [kg] (default: 70)</param>
+    /// <param name="shoulderWidth">User shoulder width [m] (default: 0.45)</param>
+    /// <param name="userHeight">User trunk height hip-to-shoulder [m] (default: 0.50)</param>
+    public static RobUSTDescription Create(int numCables, double chestAPDistance, double chestMLDistance,
+                                           double userMass, double shoulderWidth, double userHeight)
     {
-        return new RobUSTDescription(numCables, chestAPDistance, chestMLDistance);
+        return new RobUSTDescription(numCables, chestAPDistance, chestMLDistance, userMass, shoulderWidth, userHeight);
     }
 }
