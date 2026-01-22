@@ -89,7 +89,7 @@ public class MPCSolver : BaseController<double[]>
     {
         // Convert to double4x4 and compute robot frame inverse
         robotFramePose = ToDouble4x4(rawRobotFrame.PoseMatrix);
-        double4x4 robotFrameInv = math.inverse(robotFramePose);
+        double4x4 robotFrameInv = math.fastinverse(robotFramePose);
         
         double4x4 rawEePose = ToDouble4x4(rawEndEffector.PoseMatrix);
         double4x4 rawComPose = ToDouble4x4(rawComTracker.PoseMatrix);
@@ -105,22 +105,14 @@ public class MPCSolver : BaseController<double[]>
         double3 comPositionPrev = comPosePrev.c3.xyz;
         
         // Extract rotation matrix and compute ZYX Euler angles (Θ)
-        double3x3 R_com = new double3x3(
-            comPose.c0.xyz, 
-            comPose.c1.xyz, 
-            comPose.c2.xyz
-        );
+        double3x3 R_com = new double3x3(comPose);
         comEulerAnglesZYX = RotationMatrixToEulerZYX(R_com);
         
         // Finite difference for linear velocity: v = (p_curr - p_prev) / dt
         comLinearVelocity = (comPosition - comPositionPrev) / dt;
         
         // Finite difference for angular velocity
-        double3x3 R_comPrev = new double3x3(
-            comPosePrev.c0.xyz, 
-            comPosePrev.c1.xyz, 
-            comPosePrev.c2.xyz
-        );
+        double3x3 R_comPrev = new double3x3(comPosePrev);
         double3x3 R_diff = math.mul(R_com, math.transpose(R_comPrev));
         
         // Extract ω from skew-symmetric part: ω = [R32-R23, R13-R31, R21-R12] / (2*dt)
@@ -134,12 +126,53 @@ public class MPCSolver : BaseController<double[]>
         netGRF = netFPData.Force;
         netCoP = netFPData.CenterOfPressure;
     }
+
+    private void BuildQuadraticCost()
+    {
+        
+        // Build block-diagonal H matrix
+
+    }
+
+    private void BuildLinearCost()
+    {
+        // Build linear cost vector g_qp
+    }
+    
     
     /// <summary>
-    /// Extracts ZYX Euler angles (yaw, pitch, roll) from rotation matrix.
-    /// Convention: R = Rz(yaw) * Ry(pitch) * Rx(roll)
-    /// Returns (roll, pitch, yaw) to match [Θx, Θy, Θz] ordering.
+    /// Computes optimal cable tensions for current state.
+    /// Returns pre-allocated array - do NOT hold reference across frames.
     /// </summary>
+    public override double[] computeNextControl()
+    {
+        BuildQuadraticCost();
+        BuildLinearCost();
+        
+        // 2. Update solver with new cost terms
+        alglib.minqpsetquadraticterm(qpState, H_matrix, false);
+        alglib.minqpsetlinearterm(qpState, g_qp);
+        alglib.minqpsetstartingpoint(qpState, warmStart);
+        
+        // 3. Solve
+        alglib.minqpoptimize(qpState);
+        alglib.minqpresults(qpState, out double[] solution, out alglib.minqpreport report);
+        
+        // 4. Check solver status and extract first timestep tensions
+        if (report.terminationtype > 0)
+        {
+            // Success - extract first timestep (indices 0 to numCables-1)
+            Buffer.BlockCopy(solution, 0, tensions, 0, numCables * sizeof(double));
+            
+            // Update warm-start with full solution for next iteration
+            Buffer.BlockCopy(solution, 0, warmStart, 0, numVars * sizeof(double));
+        } else {
+            Debug.LogWarning($"MPC QP solver failed. Termination type: {report.terminationtype}"); // will remove once validated
+        }
+        // else: keep previous tensions (fail-safe)
+        
+        return tensions;
+    }
     private static double3 RotationMatrixToEulerZYX(in double3x3 R)
     {
         double sy = -R.c0.z;  // -R13
@@ -171,50 +204,4 @@ public class MPCSolver : BaseController<double[]>
             m.m30, m.m31, m.m32, m.m33
         );
     }
-    
-    /// <summary>
-    /// Computes optimal cable tensions for current state.
-    /// Returns pre-allocated array - do NOT hold reference across frames.
-    /// </summary>
-    public override double[] computeNextControl()
-    {
-        // 1. Build QP matrices (populate quadraticCost, linearCost)
-        //    TODO: Implement your H matrix construction here
-        //    BuildQuadraticCost();
-        //    BuildLinearCost();
-        
-        // 2. Update solver with new cost terms
-        alglib.minqpsetquadraticterm(qpState, H_matrix, false);
-        alglib.minqpsetlinearterm(qpState, g_qp);
-        alglib.minqpsetstartingpoint(qpState, warmStart);
-        
-        // 3. Solve
-        alglib.minqpoptimize(qpState);
-        alglib.minqpresults(qpState, out double[] solution, out alglib.minqpreport report);
-        
-        // 4. Check solver status and extract first timestep tensions
-        if (report.terminationtype > 0)
-        {
-            // Success - extract first timestep (indices 0 to numCables-1)
-            Buffer.BlockCopy(solution, 0, tensions, 0, numCables * sizeof(double));
-            
-            // Update warm-start with full solution for next iteration
-            Buffer.BlockCopy(solution, 0, warmStart, 0, numVars * sizeof(double));
-        } else {
-            Debug.LogWarning($"MPC QP solver failed. Termination type: {report.terminationtype}"); // will remove once validated
-        }
-        // else: keep previous tensions (fail-safe)
-        
-        return tensions;
-    }
-    
-    // ============ State Accessors ============
-    public double3 Position => comPosition;
-    public double3 EulerAnglesZYX => comEulerAnglesZYX;
-    public double3 LinearVelocity => comLinearVelocity;
-    public double3 AngularVelocity => comAngularVelocity;
-    public double4x4 ComPose => comPose;
-    public double4x4 EndEffectorPose => endEffectorPose;
-    public double3 NetGRF => netGRF;
-    public double3 NetCoP => netCoP;
 }

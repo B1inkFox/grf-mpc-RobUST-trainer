@@ -93,7 +93,7 @@ public class CableTensionPlanner
     {
         // Convert to Unity.Mathematics double4x4 for SIMD operations (stack allocated)
         double4x4 eeToWorld = ToDouble4x4(endEffectorPose);
-        double4x4 robotFrameInv = ToDouble4x4(robotFramePose.inverse);
+        double4x4 robotFrameInv = math.fastinverse(ToDouble4x4(robotFramePose));
         double4x4 eeToRobotFrame = mul(robotFrameInv, eeToWorld);
 
         int numCables = robot.NumCables;

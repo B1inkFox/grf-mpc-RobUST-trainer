@@ -199,7 +199,7 @@ public class RobotController : MonoBehaviour
         double4x4 framePose = ToDouble4x4(robot_frame_tracker.PoseMatrix);
 
         // Compute relative pose: frame^-1 * ee
-        double4x4 frameInv = math.inverse(framePose);
+        double4x4 frameInv = math.fastinverse(framePose);
         return math.mul(frameInv, eePose);
     }
 
