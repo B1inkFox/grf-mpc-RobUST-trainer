@@ -12,6 +12,7 @@ public class MPCSolver : BaseController<double[]>
     // ============ QP Solver Parameters ============
     private static readonly double MinTension = 10.0;    // [N]
     private static readonly double MaxTension = 200.0;  // [N]
+    private static readonly double3 g_vec = new double3(0.0, 0.0, -9.81); // gravity vector [m/s²]
     
     // ============ Pre-allocated QP structures (zero runtime allocation) ============
     private readonly double[] tensions;          // Output buffer
@@ -23,21 +24,30 @@ public class MPCSolver : BaseController<double[]>
     
     private alglib.minqpstate qpState;
     private readonly int numCables;
-    private readonly int horizon;
-    private readonly int numVars;
-    private readonly double dt;
+    public readonly int horizon;
+    public readonly int numVars;
+    public readonly double dt;
     
-    // ============ Cached State (updated via UpdateState before each solve) ============
+    // ============ Cached State (x0 = [p, Θ, v, ω]^T (12-dim)) ============
     // All poses/velocities expressed relative to robot frame origin
     private double4x4 robotFramePose;
     private double4x4 endEffectorPose; 
     private double4x4 comPose; 
-    
-    // State vector x0 = [p, Θ, v, ω]^T (12-dim)
     private double3 comPosition;        // p: CoM position [m]
     private double3 comEulerAnglesZYX;  // Θ: ZYX Euler angles [rad]
     private double3 comLinearVelocity;  // v: linear velocity [m/s]
     private double3 comAngularVelocity; // ω: angular velocity [rad/s]
+    private double3x3 E_Theta;        // E(Θ) angular velocity to euler rates conversion matrix
+
+    // Cached MPC parameters
+    private readonly double3 Kp;
+    private readonly double3 KTheta;
+    private readonly double3 Kv;
+    private readonly double3 Kw;
+    private double alpha = 0.00001;  // control effort weight
+    private readonly double3x3 I_body; // Inertia tensor in body frame [kg·m²]
+    private double3x3 I_world_inv;
+    private double3[] Xref;  // Reference trajectory over horizon
     
     // Force plate data (already in robot frame)
     private double3 netGRF;             // Total ground reaction force [N]
@@ -64,7 +74,13 @@ public class MPCSolver : BaseController<double[]>
         lowerBounds = new double[numVars];
         upperBounds = new double[numVars];
         warmStart = new double[numVars];
-        
+        I_body = new double3x3(
+            robot.UserMass / 12.0 * (3*math.pow(robot.UserShoulderWidth / 2.0, 2) + math.pow(robot.UserHeight, 2)), 0.0, 0.0,
+            0.0, robot.UserMass / 12.0 * (3*math.pow(robot.UserShoulderWidth / 2.0, 2) + math.pow(robot.UserHeight, 2)), 0.0,
+            0.0, 0.0, robot.UserMass / 2.0 * math.pow(robot.UserShoulderWidth / 2.0, 2)
+        );
+        Xref = new double3[horizon * 4];
+
         // Initialize box constraints (constant, set once)
         for (int i = 0; i < numVars; i++)
         {
@@ -78,6 +94,7 @@ public class MPCSolver : BaseController<double[]>
         alglib.minqpsetalgoquickqp(qpState, 1e-6, 0.0, 0.0, 30, true);
         alglib.minqpsetbc(qpState, lowerBounds, upperBounds);
     }
+
     
     /// <summary>
     /// Updates cached state before solving. Call this every control loop iteration.
@@ -87,6 +104,10 @@ public class MPCSolver : BaseController<double[]>
                             in TrackerData rawComTracker, in TrackerData rawComTrackerPrev,
                             in ForcePlateData netFPData)
     {
+        // Store force plate data (already in robot frame)
+        netGRF = netFPData.Force;
+        netCoP = netFPData.CenterOfPressure;
+
         // Convert to double4x4 and compute robot frame inverse
         robotFramePose = ToDouble4x4(rawRobotFrame.PoseMatrix);
         double4x4 robotFrameInv = math.fastinverse(robotFramePose);
@@ -122,21 +143,37 @@ public class MPCSolver : BaseController<double[]>
             R_diff.c0.y - R_diff.c1.x
         ) / (2.0 * dt);
         
-        // Store force plate data (already in robot frame)
-        netGRF = netFPData.Force;
-        netCoP = netFPData.CenterOfPressure;
+        // Compute E(Θ) matrix for angular velocity to euler rates conversion
+        double cos_psi = math.cos(comEulerAnglesZYX.z);
+        double cos_theta = math.cos(comEulerAnglesZYX.y);
+        double sin_psi = math.sin(comEulerAnglesZYX.z);
+        double sin_theta = math.sin(comEulerAnglesZYX.y);
+        E_Theta = new double3x3(
+            cos_psi*cos_theta, -sin_psi, 0.0,
+            sin_psi*cos_theta,  cos_psi, 0.0,
+            -sin_theta,        0.0,      1.0
+        );
+
+        I_world_inv = math.inverse(comPose * I_body * math.transpose(comPose));
     }
 
     private void BuildQuadraticCost()
     {
         
-        // Build block-diagonal H matrix
 
     }
 
     private void BuildLinearCost()
     {
-        // Build linear cost vector g_qp
+        double3 p_curr = comPosition;
+        double3 v_curr = comLinearVelocity;
+        double3 th_curr = comEulerAnglesZYX;
+        double3 w_curr = comAngularVelocity;
+
+        for (int k = 0; k < horizon; k++)
+        {
+            
+        }
     }
     
     
@@ -173,6 +210,15 @@ public class MPCSolver : BaseController<double[]>
         
         return tensions;
     }
+
+    /// <summary>
+    /// Provides access to reference trajectory buffer for external population.
+    /// </summary>
+    public Span<double3> GetXref()
+    {
+        return Xref.AsSpan();
+    }
+
     private static double3 RotationMatrixToEulerZYX(in double3x3 R)
     {
         double sy = -R.c0.z;  // -R13

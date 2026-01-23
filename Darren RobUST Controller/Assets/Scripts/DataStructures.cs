@@ -63,14 +63,6 @@ public struct RobotState
     }
 }
 
-[System.Serializable]
-public struct Hyperparameter
-{
-    public double mass;
-    public double3 Inertia;
-    public double3 InertiaCovariance;
-
-}
 
 [System.Serializable]
 public struct Wrench
@@ -182,9 +174,9 @@ public sealed class RobUSTDescription
     /// <param name="numCables">Number of cables in the system</param>
     /// <param name="chestAPDistance">Chest anterior-posterior distance [m]</param>
     /// <param name="chestMLDistance">Chest medial-lateral distance [m]</param>
-    /// <param name="userMass">User body mass [kg] (default: 70)</param>
-    /// <param name="shoulderWidth">User shoulder width [m] (default: 0.45)</param>
-    /// <param name="userHeight">User trunk height hip-to-shoulder [m] (default: 0.50)</param>
+    /// <param name="userMass">User body mass [kg]</param>
+    /// <param name="shoulderWidth">User shoulder width [m]</param>
+    /// <param name="userHeight">User trunk height hip-to-shoulder [m]</param>
     public static RobUSTDescription Create(int numCables, double chestAPDistance, double chestMLDistance,
                                            double userMass, double shoulderWidth, double userHeight)
     {
