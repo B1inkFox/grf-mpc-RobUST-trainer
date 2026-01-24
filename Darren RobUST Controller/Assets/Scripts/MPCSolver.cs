@@ -149,12 +149,14 @@ public class MPCSolver : BaseController<double[]>
         double sin_psi = math.sin(comEulerAnglesZYX.z);
         double sin_theta = math.sin(comEulerAnglesZYX.y);
         E_Theta = new double3x3(
-            cos_psi*cos_theta, -sin_psi, 0.0,
-            sin_psi*cos_theta,  cos_psi, 0.0,
-            -sin_theta,        0.0,      1.0
+            cos_psi/cos_theta, sin_psi/cos_theta, 0.0,
+            -sin_psi,  cos_psi, 0.0,
+            cos_psi * sin_theta/cos_theta, sin_psi * sin_theta/cos_theta, 1.0
         );
 
-        I_world_inv = math.inverse(comPose * I_body * math.transpose(comPose));
+        double3x3 I_body_inv = math.inverse(I_body);
+        double3x3 R_curr = new double3x3(comPose.c0.xyz, comPose.c1.xyz, comPose.c2.xyz);
+        I_world_inv = math.mul(math.mul(R_curr, I_body_inv), math.transpose(R_curr));
     }
 
     private void BuildQuadraticCost()
@@ -172,7 +174,8 @@ public class MPCSolver : BaseController<double[]>
 
         for (int k = 0; k < horizon; k++)
         {
-            
+            p_curr += v_curr * dt;
+            th_curr += math.mul(E_Theta, w_curr) * dt;
         }
     }
     
