@@ -20,7 +20,7 @@ public class MPCSolver : BaseController<double[]>
     private readonly double[] g_qp;        // g_qp vector
     private readonly double[] lowerBounds;       // Box constraint lower
     private readonly double[] upperBounds;       // Box constraint upper
-    private readonly double[] warmStart;         // Previous solution
+    private double[] warmStart;                  // Solution buffer (reassigned by ALGLIB)
     
     private alglib.minqpstate qpState;
     private readonly int numCables;
@@ -28,26 +28,27 @@ public class MPCSolver : BaseController<double[]>
     public readonly int numVars;
     public readonly double dt;
     
-    // ============ Cached State (x0 = [p, Θ, v, ω]^T (12-dim)) ============
-    // All poses/velocities expressed relative to robot frame origin
+    // ============ Cached State ============
     private double4x4 robotFramePose;
     private double4x4 endEffectorPose; 
-    private double4x4 comPose; 
-    private double3 comPosition;        // p: CoM position [m]
-    private double3 comEulerAnglesZYX;  // Θ: ZYX Euler angles [rad]
-    private double3 comLinearVelocity;  // v: linear velocity [m/s]
-    private double3 comAngularVelocity; // ω: angular velocity [rad/s]
-    private double3x3 E_Theta;        // E(Θ) angular velocity to euler rates conversion matrix
+    private double4x4 comPose;
+    private RBState x0;                 // Current state: [p, Θ, v, ω]^T
+    private double3x3 E_Theta;          // E(Θ): angular velocity to euler rates
 
-    // Cached MPC parameters
-    private readonly double3 Kp;
-    private readonly double3 KTheta;
-    private readonly double3 Kv;
-    private readonly double3 Kw;
-    private double alpha = 0.00001;  // control effort weight
+    // MPC weights (public setters for gain scheduling)
+    public double3 Q_pos { get; set; } = new double3(50.0, 50.0, 50.0);
+    public double3 Q_Theta { get; set; } = new double3(0.001, 0.001, 0.001);
+    public double3 Q_vel { get; set; } = new double3(1.0, 1.0, 1.0);
+    public double3 Q_omega { get; set; } = new double3(1.0, 1.0, 1.0);
+    private readonly double alpha = 0.00001;  // control effort weight
     private readonly double3x3 I_body; // Inertia tensor in body frame [kg·m²]
     private double3x3 I_world_inv;
-    private double3[] Xref;  // Reference trajectory over horizon
+    private RBState[] Xref;  // Reference trajectory over horizon
+    private RBState[] freeResponseError;
+    private double3[] B_v;
+    private double3[] B_w;
+    private double[,] M_pos; // Stores: Bv' * Qp * Bv + Bw' * E' * Qth * E * Bw
+    private double[,] M_vel; // Stores: Bv' * Qv * Bv + Bw' * Qw * Bw
     
     // Force plate data (already in robot frame)
     private double3 netGRF;             // Total ground reaction force [N]
@@ -79,7 +80,12 @@ public class MPCSolver : BaseController<double[]>
             0.0, robot.UserMass / 12.0 * (3*math.pow(robot.UserShoulderWidth / 2.0, 2) + math.pow(robot.UserHeight, 2)), 0.0,
             0.0, 0.0, robot.UserMass / 2.0 * math.pow(robot.UserShoulderWidth / 2.0, 2)
         );
-        Xref = new double3[horizon * 4];
+        Xref = new RBState[horizon];
+        freeResponseError = new RBState[horizon];
+        B_v = new double3[numCables];
+        B_w = new double3[numCables];
+        M_pos = new double[numCables, numCables];
+        M_vel = new double[numCables, numCables];
 
         // Initialize box constraints (constant, set once)
         for (int i = 0; i < numVars; i++)
@@ -98,11 +104,17 @@ public class MPCSolver : BaseController<double[]>
     
     /// <summary>
     /// Updates cached state before solving. Call this every control loop iteration.
-    /// Converts raw TrackerData to robot frame and computes velocities via finite differencing.
+    /// Converts raw TrackerData to robot frame. Velocities are computed externally and passed in.
     /// </summary>
+    /// <param name="rawRobotFrame">Static robot frame tracker data</param>
+    /// <param name="rawEndEffector">Current end effector tracker data</param>
+    /// <param name="rawComTracker">Current CoM tracker data</param>
+    /// <param name="linearVelocity">CoM linear velocity in world/robot frame [m/s]</param>
+    /// <param name="angularVelocity">CoM angular velocity in world/robot frame [rad/s]</param>
+    /// <param name="netFPData">Net force plate data</param>
     public void UpdateState(in TrackerData rawRobotFrame, in TrackerData rawEndEffector, 
-                            in TrackerData rawComTracker, in TrackerData rawComTrackerPrev,
-                            in ForcePlateData netFPData)
+                            in TrackerData rawComTracker, in double3 linearVelocity,
+                            in double3 angularVelocity, in ForcePlateData netFPData)
     {
         // Store force plate data (already in robot frame)
         netGRF = netFPData.Force;
@@ -114,40 +126,24 @@ public class MPCSolver : BaseController<double[]>
         
         double4x4 rawEePose = ToDouble4x4(rawEndEffector.PoseMatrix);
         double4x4 rawComPose = ToDouble4x4(rawComTracker.PoseMatrix);
-        double4x4 rawComPosePrev = ToDouble4x4(rawComTrackerPrev.PoseMatrix);
         
         // Transform poses to robot frame: T = T_frame^-1 * T_raw
         endEffectorPose = math.mul(robotFrameInv, rawEePose);
         comPose = math.mul(robotFrameInv, rawComPose);
-        double4x4 comPosePrev = math.mul(robotFrameInv, rawComPosePrev);
         
-        // Extract CoM position (p)
-        comPosition = comPose.c3.xyz;
-        double3 comPositionPrev = comPosePrev.c3.xyz;
-        
-        // Extract rotation matrix and compute ZYX Euler angles (Θ)
         double3x3 R_com = new double3x3(comPose);
-        comEulerAnglesZYX = RotationMatrixToEulerZYX(R_com);
-        
-        // Finite difference for linear velocity: v = (p_curr - p_prev) / dt
-        comLinearVelocity = (comPosition - comPositionPrev) / dt;
-        
-        // Finite difference for angular velocity
-        double3x3 R_comPrev = new double3x3(comPosePrev);
-        double3x3 R_diff = math.mul(R_com, math.transpose(R_comPrev));
-        
-        // Extract ω from skew-symmetric part: ω = [R32-R23, R13-R31, R21-R12] / (2*dt)
-        comAngularVelocity = new double3(
-            R_diff.c1.z - R_diff.c2.y,
-            R_diff.c2.x - R_diff.c0.z,
-            R_diff.c0.y - R_diff.c1.x
-        ) / (2.0 * dt);
+        x0 = new RBState(
+            comPose.c3.xyz,
+            RotationMatrixToEulerZYX(R_com),
+            linearVelocity,
+            angularVelocity
+        );
         
         // Compute E(Θ) matrix for angular velocity to euler rates conversion
-        double cos_psi = math.cos(comEulerAnglesZYX.z);
-        double cos_theta = math.cos(comEulerAnglesZYX.y);
-        double sin_psi = math.sin(comEulerAnglesZYX.z);
-        double sin_theta = math.sin(comEulerAnglesZYX.y);
+        double cos_psi = math.cos(x0.th.z);
+        double cos_theta = math.cos(x0.th.y);
+        double sin_psi = math.sin(x0.th.z);
+        double sin_theta = math.sin(x0.th.y);
         E_Theta = new double3x3(
             cos_psi/cos_theta, sin_psi/cos_theta, 0.0,
             -sin_psi,  cos_psi, 0.0,
@@ -157,25 +153,196 @@ public class MPCSolver : BaseController<double[]>
         double3x3 I_body_inv = math.inverse(I_body);
         double3x3 R_curr = new double3x3(comPose.c0.xyz, comPose.c1.xyz, comPose.c2.xyz);
         I_world_inv = math.mul(math.mul(R_curr, I_body_inv), math.transpose(R_curr));
+
+        // Build Bv and Bw matrices
+        for (int i = 0; i < numCables; i++)
+        {
+            double3 attachLocal = robot.LocalAttachmentPoints[i];
+            double3 attachCurrent = math.mul(endEffectorPose, new double4(attachLocal, 1.0)).xyz;
+            
+            // Compute Direction (n_i) and Moment Arm (r_i)
+            double3 n_i = math.normalize(robot.FramePulleyPositions[i] - attachCurrent);
+            double3 r_i = attachCurrent - x0.p; // Vector from CoM to attachment
+
+            B_v[i] = n_i * (dt / robot.UserMass); 
+
+            double3 torque_unit = math.cross(r_i, n_i);
+            B_w[i] = math.mul(I_world_inv, torque_unit) * dt;
+        }
     }
+
 
     private void BuildQuadraticCost()
     {
+        // Recall M_pos: Bv'Qp Bv + Bw'E'Qth E Bw
+        // Recall M_vel: Bv'Qv Bv + Bw'Qw Bw
         
+        // 1. Precompute the effective Angular Weight Matrix in body frame: W = E^T * Q_Theta * E
+        double3x3 ET_Qtheta_E = new double3x3();
+        ET_Qtheta_E.c0 = math.mul(math.transpose(E_Theta), Q_Theta * E_Theta.c0);
+        ET_Qtheta_E.c1 = math.mul(math.transpose(E_Theta), Q_Theta * E_Theta.c1);
+        ET_Qtheta_E.c2 = math.mul(math.transpose(E_Theta), Q_Theta * E_Theta.c2);
 
+        // 2. Fill Atomic M_pos M_vel Matrices (Nc x Nc)
+        for (int r = 0; r < numCables; r++)
+        {
+            for (int c = 0; c < numCables; c++)
+            {               
+                // ============ Position & Orientation Terms ============
+                // Linear Position Term: B_v^T * Q_pos * B_v
+                double BvT_Qpos_Bv = math.dot(B_v[r], Q_pos * B_v[c]);
+                
+                // We first compute the right-hand side vector: (E^T Q E) * B_w[c]
+                double3 ETQthetaE_Bw_c = math.mul(ET_Qtheta_E, B_w[c]);
+                double BwT_ETQthetaE_Bw = math.dot(B_w[r], ETQthetaE_Bw_c);
+
+                // Combine into the Position Block
+                M_pos[r, c] = BvT_Qpos_Bv + BwT_ETQthetaE_Bw;
+
+
+                // ============ Velocity & Angular Velocity Terms ============
+                // Linear Velocity Term: B_v^T * Q_vel * B_v
+                double BvT_Qvel_Bv = math.dot(B_v[r], Q_vel * B_v[c]);
+                
+                // Angular Velocity Term: B_w^T * Q_omega * B_w
+                double BwT_Qomega_Bw = math.dot(B_w[r], Q_omega * B_w[c]);
+
+                // Combine into the Velocity Block
+                M_vel[r, c] = BvT_Qvel_Bv + BwT_Qomega_Bw;
+            }
+        }
+
+        // 2. Fill Global Hessian H (Blockwise)
+        // ---------------------------------------------------------        
+        double dtSq = dt * dt;
+
+        // Iterate Upper Triangle of Blocks
+        for (int i = 0; i < horizon; i++)
+        {
+            for (int j = i; j < horizon; j++)
+            {
+                double coeff_vel = (double)(horizon - j);
+
+                // Coeff for Position Terms: Sum of Squares series
+                // S is the number of steps remaining after the later input j
+                // Formula: Sum_{k=0 to S} [k^2 + (j-i)k]
+                // SumSq = S(S+1)(2S+1)/6
+                // SumLin = S(S+1)/2
+                long S = horizon - 1 - j; 
+                double sum_sq = (double)(S * (S + 1) * (2 * S + 1)) / 6.0;
+                double sum_lin = (double)(S * (S + 1)) / 2.0;
+                double coeff_pos = sum_sq + (j - i) * sum_lin;
+                coeff_pos *= dtSq;
+
+                int r_offset = i * numCables;
+                int c_offset = j * numCables;
+
+                for (int r = 0; r < numCables; r++)
+                {
+                    for (int c = 0; c < numCables; c++)
+                    {
+                        double val = 2.0 * (coeff_pos * M_pos[r, c] + coeff_vel * M_vel[r, c]);
+
+                        // Assign to H (Upper Triangle)
+                        H_matrix[r_offset + r, c_offset + c] = val;
+
+                        // Symmetry (Lower Triangle)
+                        if (i != j)
+                            H_matrix[c_offset + c, r_offset + r] = val;
+                    }
+                }
+            }
+            
+            // Add Regularization (R_bar) to Diagonal elements of this block
+            // (Only for i==j blocks)
+            int diag_offset = i * numCables;
+            for (int r = 0; r < numCables; r++)
+            {
+                H_matrix[diag_offset + r, diag_offset + r] += 2.0 * alpha;
+            }
+        }
     }
 
     private void BuildLinearCost()
     {
-        double3 p_curr = comPosition;
-        double3 v_curr = comLinearVelocity;
-        double3 th_curr = comEulerAnglesZYX;
-        double3 w_curr = comAngularVelocity;
+        // 0. Setup Dynamics Terms (Ad, Bd, d) derived from x0
+        // ---------------------------------------------------------
+        // Calculate constant disturbance vector 'd' (Gravity + GRF + Coriolis)
+        // From Image: d_g = [0, 0, g + 1/m*f_grf, I_inv(...)]
+        
+        // Linear acceleration part: g + F_grf / m
+        double3 d_vel = g_vec + (netGRF / robot.UserMass);
+        
+        // Angular acceleration part: I_inv * ( Torque_grf - w x Iw )
+        // Torque_grf = (p_cop - p_0) x f_grf
+        double3 r_cop = netCoP - x0.p; 
+        double3 tau_grf = math.cross(r_cop, netGRF);
+        double3 d_ang = math.mul(I_world_inv, tau_grf);
+
+        // Scale by dt for discrete form
+        d_vel *= dt;
+        d_ang *= dt;
+
+        // 1. Forward Pass: "Free Response" Simulation
+        // ---------------------------------------------------------
+        // x_{k+1} = A_d * x_k + d
+        
+        RBState x_pred = x0; // Start at current state
 
         for (int k = 0; k < horizon; k++)
         {
-            p_curr += v_curr * dt;
-            th_curr += math.mul(E_Theta, w_curr) * dt;
+            // --- Apply Discrete Dynamics (Ad * x + d) ---
+            // Position: p_{k+1} = p_k + v_k * dt
+            // Orientation: th_{k+1} = th_k + E(th_0) * w_k * dt
+            // Velocity: v_{k+1} = v_k + d_vel
+            // Angular Velocity: w_{k+1} = w_k + d_ang
+            x_pred.p += x_pred.v * dt;
+            x_pred.th += math.mul(E_Theta, x_pred.w) * dt;
+            x_pred.v += d_vel;
+            x_pred.w += d_ang;
+
+            // --- Compute Error against Reference ---
+            RBState error;
+            error.p = x_pred.p - Xref[k].p;
+            error.th = x_pred.th - Xref[k].th; // TODO: Handle angle wrapping if necessary
+            error.v = x_pred.v - Xref[k].v;
+            error.w = x_pred.w - Xref[k].w;
+
+            // Store (Q * (Ax + d - xref)) for the backward pass
+            freeResponseError[k].p = error.p * Q_pos;
+            freeResponseError[k].th = error.th * Q_ori;
+            freeResponseError[k].v = error.v * Q_vel;
+            freeResponseError[k].w = error.w * Q_ang;
+        }
+
+        // 2. Backward Pass: Adjoint Calculation (Co-state)
+        // ---------------------------------------------------------
+        // Calculates gradient of cost w.r.t inputs: g = 2 * B^T * p
+        // p_k = Q*e_{k+1} + A_d^T * p_{k+1}
+        RBState p = new RBState(); // "Co-state"
+        for (int k = horizon - 1; k >= 0; k--)
+        {
+            // Accumulate error
+            p.p += freeResponseError[k].p;
+            p.th += freeResponseError[k].th;
+            p.v += freeResponseError[k].v;
+            p.w += freeResponseError[k].w;
+
+            // --- Linear Cost Gradient (g_k) ---
+            // g = 2 * B^T * p
+            int stepOffset = k * numCables;
+            
+            for (int i = 0; i < numCables; i++)
+            {
+                double val_v = math.dot(B_v[i], p.v);
+                double val_w = math.dot(B_w[i], p.w);
+
+                g_qp[stepOffset + i] = 2.0 * (val_v + val_w);
+            }
+
+            // --- Propagate Co-state (p = Ad^T * p) ---
+            p.v += p.p * dt;
+            p.w += math.mul(math.transpose(E_Theta), p.th) * dt;
         }
     }
     
@@ -196,18 +363,14 @@ public class MPCSolver : BaseController<double[]>
         
         // 3. Solve
         alglib.minqpoptimize(qpState);
-        alglib.minqpresults(qpState, out double[] solution, out alglib.minqpreport report);
+        alglib.minqpresults(qpState, out warmStart, out alglib.minqpreport report);
         
         // 4. Check solver status and extract first timestep tensions
         if (report.terminationtype > 0)
         {
-            // Success - extract first timestep (indices 0 to numCables-1)
-            Buffer.BlockCopy(solution, 0, tensions, 0, numCables * sizeof(double));
-            
-            // Update warm-start with full solution for next iteration
-            Buffer.BlockCopy(solution, 0, warmStart, 0, numVars * sizeof(double));
+            Buffer.BlockCopy(warmStart, 0, tensions, 0, numCables * sizeof(double));
         } else {
-            Debug.LogWarning($"MPC QP solver failed. Termination type: {report.terminationtype}"); // will remove once validated
+            Debug.LogWarning($"MPC QP solver failed. Termination type: {report.terminationtype}");
         }
         // else: keep previous tensions (fail-safe)
         
@@ -217,9 +380,63 @@ public class MPCSolver : BaseController<double[]>
     /// <summary>
     /// Provides access to reference trajectory buffer for external population.
     /// </summary>
-    public Span<double3> GetXref()
+    public Span<RBState> GetXref()
     {
         return Xref.AsSpan();
+    }
+
+    // ============ Visualization Helpers ============
+
+
+    public void ComputeOptimalTrajectory(Span<RBState> results)
+    {
+        ComputeTrajectory(results, useControl: true);
+    }
+    public void ComputeFreeTrajectory(Span<RBState> results)
+    {
+        ComputeTrajectory(results, useControl: false);
+    }
+
+    /// <summary>
+    /// Shared integration logic to ensure visualizer matches solver physics exactly.
+    /// </summary>
+    private void ComputeTrajectory(Span<RBState> results, bool useControl)
+    {
+        // Re-calculate constant disturbance terms locally 
+        // (Must match BuildLinearCost logic exactly)
+        double3 d_vel = g_vec + (netGRF / robot.UserMass);
+        
+        double3 r_cop = netCoP - x0.p; 
+        double3 tau_grf = math.cross(r_cop, netGRF);
+        double3 d_ang = math.mul(I_world_inv, tau_grf);
+
+        d_vel *= dt;
+        d_ang *= dt;
+
+        RBState x_k = x0;
+        int steps = math.min(results.Length, horizon);
+
+        for (int k = 0; k < steps; k++)
+        {
+            x_k.p += x_k.v * dt;
+            x_k.th += math.mul(E_Theta, x_k.w) * dt;
+            x_k.v += d_vel;
+            x_k.w += d_ang;
+
+            if (useControl)
+            {
+                int u_offset = k * numCables;
+                for (int i = 0; i < numCables; i++)
+                {
+                    double u = warmStart[u_offset + i];
+                    x_k.v += B_v[i] * u;
+                    x_k.w += B_w[i] * u;
+                }
+            }
+            
+            // Write to buffer
+            results[k] = x_k;
+        }
     }
 
     private static double3 RotationMatrixToEulerZYX(in double3x3 R)

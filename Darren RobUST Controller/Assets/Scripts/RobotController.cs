@@ -43,6 +43,13 @@ public class RobotController : MonoBehaviour
     [Tooltip("Measured width of the chest in the medial-lateral direction [m].")]
     public float chestMLDistance = 0.3f;
 
+    [Tooltip("User body mass [kg].")]
+    public float userMass = 70.0f;
+    [Tooltip("User shoulder width [m].")]
+    public float userShoulderWidth = 0.4f;
+    [Tooltip("User trunk height (hip to shoulder) [m].")]
+    public float userHeight = 0.5f;
+
     private RobUSTDescription robotDescription;
     private BaseController<Wrench> controller;
 
@@ -74,7 +81,8 @@ public class RobotController : MonoBehaviour
         }
 
         // Create RobUST description (single allocation at startup)
-        robotDescription = RobUSTDescription.Create(numCables, chestAPDistance, chestMLDistance);
+        robotDescription = RobUSTDescription.Create(numCables, chestAPDistance, chestMLDistance, 
+                                                    userMass, userShoulderWidth, userHeight);
         Debug.Log($"RobUST description created: {numCables} cables, AP={chestAPDistance}m, ML={chestMLDistance}m");
 
         if (!trackerManager.Initialize())
@@ -111,10 +119,11 @@ public class RobotController : MonoBehaviour
         if (isLabviewControlEnabled)
         {
             tcpCommunicator.ConnectToServer();
+            tcpCommunicator.SetClosedLoopControl();
         }
 
         // Initialize Controller Here
-        controller = new MPCSolver(0.05, 10, 4);
+        controller = new MPCSolver(robotDescription, 0.05, 10);
 
         controllerThread = new Thread(controlLoop)
         {
@@ -134,40 +143,70 @@ public class RobotController : MonoBehaviour
     /// </summary>
     private void controlLoop()
     {
+        double ctrl_freq = 100.0;
+        double dt = 1.0 / ctrl_freq;
         TrackerData rawComData, rawEndEffectorData;
-        Span<double> tension_command = stackalloc double[14];
+        Span<double> motor_tension_command = stackalloc double[14];
 
-        double frequency = System.Diagnostics.Stopwatch.Frequency;
-        double ticksToNs = 1_000_000_000.0 / frequency;
-        long intervalTicks = (long)(frequency / 100.0); // Control loop at 100 Hz
+        double4x4 robotFrameInv = math.fastinverse(ToDouble4x4(robot_frame_tracker.PoseMatrix));
+
+        // Low-pass filter: α = dt / (τ + dt), where τ = 1/(2πfc), fc = cutoff frequency
+        double filterCutoffHz = 10.0;
+        double tau = 1.0 / (2.0 * math.PI * filterCutoffHz);
+        double alpha = dt / (tau + dt);
+        // Initialize previous state before loop
+        trackerManager.GetCoMTrackerData(out rawComData);
+        double4x4 comPose = math.mul(robotFrameInv, ToDouble4x4(rawComData.PoseMatrix));
+        double3 comPositionPrev = comPose.c3.xyz;
+        double3x3 R_comPrev = new double3x3(comPose);
+        double3 comLinearVelocity = double3.zero;
+        double3 comAngularVelocity = double3.zero;
+        ForcePlateData netFPData;
+
+        // loop setup
+        double system_frequency = System.Diagnostics.Stopwatch.Frequency;
+        double ticksToNs = 1_000_000_000.0 / system_frequency;
+        long intervalTicks = (long)(system_frequency / ctrl_freq);
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
         long lastLoopTick = System.Diagnostics.Stopwatch.GetTimestamp();
-        
         while (isRunning)
         {
             long loopStartTick = System.Diagnostics.Stopwatch.GetTimestamp();
             s_IntervalNs.Value = (long)((loopStartTick - lastLoopTick) * ticksToNs);
             lastLoopTick = loopStartTick;
 
-            // 1. Get the latest raw tracker data (in the arbitrary, RIGHT-HANDED OpenVR/Vive coordinate system).
-            trackerManager.GetCoMTrackerData(out rawComData);
             trackerManager.GetEndEffectorTrackerData(out rawEndEffectorData);
+            trackerManager.GetCoMTrackerData(out rawComData);
+            
+            comPose = math.mul(robotFrameInv, ToDouble4x4(rawComData.PoseMatrix));
+            double3 comPosition = comPose.c3.xyz;
+            double3x3 R_com = new double3x3(comPose);
 
-            // 2. Cache tracker data for visualization (thread-safe, applied in visualizer's Update())
-            visualizer.SetTrackerData(rawComData, rawEndEffectorData, robot_frame_tracker);
+            double3 rawLinearVelocity = (comPosition - comPositionPrev) / dt;
+            double3x3 R_diff = math.mul(R_com, math.transpose(R_comPrev));
+            double3 rawAngularVelocity = new double3(
+                R_diff.c1.z - R_diff.c2.y,
+                R_diff.c2.x - R_diff.c0.z,
+                R_diff.c0.y - R_diff.c1.x
+            ) / (2.0 * dt);
+            // Apply low-pass filter and update prev state
+            comLinearVelocity = alpha * rawLinearVelocity + (1.0 - alpha) * comLinearVelocity;
+            comAngularVelocity = alpha * rawAngularVelocity + (1.0 - alpha) * comAngularVelocity;
+            comPositionPrev = comPosition;
+            R_comPrev = R_com;
 
-            //Here we parse the control effort that we obtained from the controller, to be implemented
-            // Compute cable tensions using the controller
-            // map tensions to tension_command array
-
-
+            forcePlateManager.GetNetForcePlateData(out netFPData);
+            controller.UpdateState(robot_frame_tracker, rawEndEffectorData, rawComData, comLinearVelocity, comAngularVelocity, netFPData);
+            double[] solver_tensions = controller.computeNextControl();
 
             // Send the calculated tensions to LabVIEW
-            tcpCommunicator.SetClosedLoopControl();
-            tcpCommunicator.UpdateTensionSetpoint(tension_command);
+            MapTensionsToMotors(solver_tensions, motor_tension_command);
+            tcpCommunicator.UpdateTensionSetpoint(motor_tension_command);
+            
+            // Cache tracker data for visualization 
+            visualizer.SetTrackerData(rawComData, rawEndEffectorData, robot_frame_tracker);
 
             s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
-            
             while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime)
             {
                 // (BURN CPU cycles to hold timing precision)
@@ -238,27 +277,17 @@ public class RobotController : MonoBehaviour
 
 
     /// <summary>
-    /// Maps the 8-DOF solver tensions to the 14-DOF motor driver array.
-    /// Zero allocations.
+    /// Maps solver tensions to the 14-motor driver array using the active configuration.
     /// </summary>
-    // Change return type to void. Pass the destination 'output' as an argument.
     private void MapTensionsToMotors(double[] solverResult, Span<double> output)
     {
-        // No allocations here. Just direct memory writing.
-        output[0] = 0;
-        output[1] = solverResult[6];
-        output[2] = 0;
-        output[3] = solverResult[2];
-        output[4] = solverResult[1];
-        output[5] = 0;
-        output[6] = solverResult[5];
-        output[7] = solverResult[4];
-        output[8] = 0;
-        output[9] = solverResult[0];
-        output[10] = solverResult[3];
-        output[11] = 0;
-        output[12] = solverResult[7];
-        output[13] = 0;
+        output.Clear();
+        int count = robotDescription.SolverToMotorMap.Length;
+        for (int i = 0; i < count; i++)
+        {
+            int motorIndex = robotDescription.SolverToMotorMap[i];
+            output[motorIndex] = solverResult[i];
+        }
     }
     
 

@@ -72,7 +72,7 @@ public class CableTensionPlanner
         // Initialize previousSolution with a reasonable default
         previousSolution = new double[numCables];
         for (int i = 0; i < numCables; i++)
-            previousSolution[i] = 10.0; // default tension value
+            previousSolution[i] = 10.0;
         
         // initialize qp solver
         alglib.minqpcreate(numCables, out qpState); // Initialize QP state once and reuse it for subsequent solves

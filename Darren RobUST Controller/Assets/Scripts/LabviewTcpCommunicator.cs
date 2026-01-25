@@ -125,7 +125,7 @@ public class LabviewTcpCommunicator : MonoBehaviour
             return;
         }
 
-        double[] sendTensions = new double[tensions.Length];
+        Span<double> sendTensions = stackalloc double[14];
 
         // Timing constants
         double frequency = Stopwatch.Frequency;
@@ -140,10 +140,9 @@ public class LabviewTcpCommunicator : MonoBehaviour
             s_IntervalNs.Value = (long)((loopStartTick - lastLoopTick) * ticksToNs);
             lastLoopTick = loopStartTick;
 
-            // Get thread-safe copy of tension data
             lock (dataLock)
             {
-                Array.Copy(tensions, sendTensions, tensions.Length);
+                tensions.AsSpan().CopyTo(sendTensions);
             }
 
             int bytesToSend = FillPacketBuffer(sendTensions, sendBuffer);
@@ -179,9 +178,8 @@ public class LabviewTcpCommunicator : MonoBehaviour
     /// <summary>
     /// Fills the byte array directly with ASCII data.
     /// Returns the number of bytes written.
-    /// Allocates ZERO memory (no new Strings, no new Arrays).
     /// </summary>
-    private int FillPacketBuffer(double[] values, byte[] buffer)
+    private int FillPacketBuffer(ReadOnlySpan<double> values, byte[] buffer)
     {
         int pos = 0;
 

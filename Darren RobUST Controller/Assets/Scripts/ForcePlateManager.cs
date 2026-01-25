@@ -39,6 +39,15 @@ public class ForcePlateManager : MonoBehaviour
     /// <returns>True if initialization succeeded, false otherwise</returns>
     public bool Initialize()
     {
+        // Ensure storage is ready even if SDK fails later
+        if (numForcePlates <= 0)
+        {
+            Debug.LogError("Force Plate Count invalid.");
+            return false;
+        }
+        forcePlateDataArray = new ForcePlateData[numForcePlates];
+        calib = new ForcePlateCalibrator();
+        
         // Initialize the Vicon SDK
         if (!InitializeViconSDK())
         {
@@ -57,7 +66,6 @@ public class ForcePlateManager : MonoBehaviour
         forcePlateThread.Start();
 
         Debug.Log($"ForcePlateManager initialized successfully on port {serverPort}.");
-        calib = new ForcePlateCalibrator();
         return true;
     }
     
@@ -66,15 +74,6 @@ public class ForcePlateManager : MonoBehaviour
     /// </summary>
     private bool InitializeViconSDK()
     {
-        if (numForcePlates <= 0)
-        {
-            Debug.LogError("Force Plate Count in Inspector is not set to a positive integer.");
-            return false;
-        }
-
-        // Allocate data arrays based on force plate count
-        forcePlateDataArray = new ForcePlateData[numForcePlates];
-
         // Create the client directly
         viconClient = new Client();
         string connectionString = $"localhost:{serverPort}";
@@ -162,11 +161,37 @@ public class ForcePlateManager : MonoBehaviour
             // Data is already transformed in the thread loop
             data = forcePlateDataArray[plateIndex];
         }
+    }
+
+    public void GetNetForcePlateData(out ForcePlateData netData)
+    {
+        Span<ForcePlateData> snapshot = stackalloc ForcePlateData[numForcePlates];
+        lock (dataLock)
+        {
+            int copyLen = math.min(numForcePlates, forcePlateDataArray.Length);
+            new ReadOnlySpan<ForcePlateData>(forcePlateDataArray, 0, copyLen).CopyTo(snapshot);
+        }
+
+        // Perform computation on local stack data (thread-safe, no lock needed)
+        double3 netForce = double3.zero;
+        double3 weightedCoPSum = double3.zero;
+        double totalVerticalForce = 0.0;
+
+        for (int i = 0; i < numForcePlates; i++)
+        {
+            ref var plate = ref snapshot[i];
+            netForce += plate.Force;
+
+            // Weight CoP by vertical force (Z-axis)
+            double fz = math.abs(plate.Force.z);
+            weightedCoPSum += plate.CenterOfPressure * fz;
+            totalVerticalForce += fz;
+        }
+
+        double3 netCoP = totalVerticalForce > 1e-3 ? weightedCoPSum / totalVerticalForce : double3.zero;
+        netData = new ForcePlateData(netForce, netCoP);
     }  
 
-
-
-    
     /// <summary>
     /// Clean up resources on application quit
     /// </summary>

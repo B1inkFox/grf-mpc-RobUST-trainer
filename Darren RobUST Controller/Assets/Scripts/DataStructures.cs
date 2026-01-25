@@ -42,24 +42,23 @@ public struct ForcePlateData
     }
 }
 
-
+/// <summary>
+/// Rigid body state for MPC prediction.
+/// </summary>
 [System.Serializable]
-public struct RobotState
+public struct RBState
 {
-    // COM state (from COM tracker, treated as COM up to constant bias)
-    public double3 comPosition;    // [m]
-    public double3 comVelocity;    // [m/s]
-    public quaternion trunkOrientation;
-    public double3 totalGRF;       // sum of all foot forces [N]
-    public double3 globalCOP;      // effective CoP in robot frame [m]
+    public double3 p;   // position [m]
+    public double3 th;  // ZYX Euler angles [rad]
+    public double3 v;   // linear velocity [m/s]
+    public double3 w;   // angular velocity [rad/s]
 
-    public RobotState(double3 cp, double3 cv, quaternion to, double3 grf, double3 cop)
+    public RBState(double3 position, double3 eulerAngles, double3 linearVelocity, double3 angularVelocity)
     {
-        comPosition = cp;
-        comVelocity = cv;
-        trunkOrientation = to;
-        totalGRF = grf;
-        globalCOP = cop;
+        p = position;
+        th = eulerAngles;
+        v = linearVelocity;
+        w = angularVelocity;
     }
 }
 
@@ -118,6 +117,25 @@ public sealed class RobUSTDescription
     /// <summary>Chest medial-lateral distance [m]</summary>
     public readonly double ChestMLDistance;
 
+    // Full 8-cable hardware definition (Static Database)
+    private static readonly double3[] AllPulleyPositions = new double3[]
+    {
+        new double3(-0.8114, 1.6556, 0.9400),   // 0: Front-Right Top (Motor 10)
+        new double3(-0.8066, 0.0084, 0.8895),   // 1: Front-Left Top (Motor 5)
+        new double3(0.9827, 0.0592, 0.9126),    // 2: Back-Left Top (Motor 4)
+        new double3(0.9718, 1.6551, 0.9411),    // 3: Back-Right Top (Motor 11)
+        new double3(-0.8084, 1.6496, -0.3060),  // 4: Front-Right Bottom (Motor 8)
+        new double3(-0.7667, 0.0144, -0.3243),  // 5: Front-Left Bottom (Motor 7)
+        new double3(0.9748, 0.0681, -0.5438),   // 6: Back-Left Bottom (Motor 2)
+        new double3(0.9498, 1.6744, -0.5409)    // 7: Back-Right Bottom (Motor 13)
+    };
+
+    // Mapping from solver index to motor driver index for the full set
+    // Corresponds to the order in AllPulleyPositions
+    public static readonly int[] FullMotorMapping = new int[] { 9, 4, 3, 10, 7, 6, 1, 12 };
+
+    public readonly int[] SolverToMotorMap;
+
     private RobUSTDescription(int numCables, double chestAP, double chestML, 
                               double userMass, double shoulderWidth, double userHeight)
     {
@@ -131,39 +149,37 @@ public sealed class RobUSTDescription
         FramePulleyPositions = new double3[numCables];
         FramePulleyPositionsVec3 = new Vector3[numCables];
         LocalAttachmentPoints = new double3[numCables];
+        SolverToMotorMap = new int[numCables];
 
-        // Fixed pulley positions relative to robot frame tracker (measured/calibrated)
-        FramePulleyPositions[0] = new double3(-0.8114, 1.6556, 0.9400);   // Front-Right Top (Motor 10)
-        FramePulleyPositions[1] = new double3(-0.8066, 0.0084, 0.8895);   // Front-Left Top (Motor 5)
-        FramePulleyPositions[2] = new double3(0.9827, 0.0592, 0.9126);    // Back-Left Top (Motor 4)
-        FramePulleyPositions[3] = new double3(0.9718, 1.6551, 0.9411);    // Back-Right Top (Motor 11)
-        FramePulleyPositions[4] = new double3(-0.8084, 1.6496, -0.3060);  // Front-Right Bottom (Motor 8)
-        FramePulleyPositions[5] = new double3(-0.7667, 0.0144, -0.3243);  // Front-Left Bottom (Motor 7)
-        FramePulleyPositions[6] = new double3(0.9748, 0.0681, -0.5438);   // Back-Left Bottom (Motor 2)
-        FramePulleyPositions[7] = new double3(0.9498, 1.6744, -0.5409);   // Back-Right Bottom (Motor 13)
+        // Determine active subset based on requested numCables
+        int[] activeIndices = numCables switch
+        {
+            8 => new int[] { 0, 1, 2, 3, 4, 5, 6, 7 },
+            4 => new int[] { 0, 1, 2, 3 }, // Top cables only
+            _ => throw new System.ArgumentException($"Unsupported cable count: {numCables}. valid options: 4, 8")
+        };
 
-        // Copy to Vector3 array for visualizer compatibility
+        double halfML = chestML / 2.0;
+        
+        // Populate arrays based on active indices
         for (int i = 0; i < numCables; i++)
         {
+            int srcIdx = activeIndices[i];
+            
+            FramePulleyPositions[i] = AllPulleyPositions[srcIdx];
             FramePulleyPositionsVec3[i] = new Vector3(
                 (float)FramePulleyPositions[i].x,
                 (float)FramePulleyPositions[i].y,
                 (float)FramePulleyPositions[i].z);
+
+            SolverToMotorMap[i] = FullMotorMapping[srcIdx];
+            
+            if (srcIdx == 0 || srcIdx == 4) LocalAttachmentPoints[i] = new double3(-halfML, -chestAP, 0);
+            else if (srcIdx == 1 || srcIdx == 5) LocalAttachmentPoints[i] = new double3(halfML, -chestAP, 0);
+            else if (srcIdx == 2 || srcIdx == 6) LocalAttachmentPoints[i] = new double3(halfML, 0, 0);
+            else if (srcIdx == 3 || srcIdx == 7) LocalAttachmentPoints[i] = new double3(-halfML, 0, 0);
         }
 
-        // Local attachment points based on belt geometry relative to end-effector tracker
-        double halfML = chestML / 2.0;
-        LocalAttachmentPoints[0] = new double3(-halfML, -chestAP, 0);  // Front-Right
-        LocalAttachmentPoints[1] = new double3(halfML, -chestAP, 0);   // Front-Left
-        LocalAttachmentPoints[2] = new double3(halfML, 0, 0);          // Back-Left
-        LocalAttachmentPoints[3] = new double3(-halfML, 0, 0);         // Back-Right
-        // Repeat for bottom cables
-        LocalAttachmentPoints[4] = new double3(-halfML, -chestAP, 0);  // Front-Right
-        LocalAttachmentPoints[5] = new double3(halfML, -chestAP, 0);   // Front-Left
-        LocalAttachmentPoints[6] = new double3(halfML, 0, 0);          // Back-Left
-        LocalAttachmentPoints[7] = new double3(-halfML, 0, 0);         // Back-Right
-
-        // Belt center in end-effector frame
         BeltCenter_EE_Frame = new double3(0, -chestAP / 2.0, 0);
     }
 
