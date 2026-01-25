@@ -51,7 +51,7 @@ public class RobotController : MonoBehaviour
     public float userHeight = 0.5f;
 
     private RobUSTDescription robotDescription;
-    private BaseController<Wrench> controller;
+    private MPCSolver controller;
 
     // Static frame reference captured only at startup to prevent drift
     private TrackerData robot_frame_tracker;
@@ -158,7 +158,7 @@ public class RobotController : MonoBehaviour
         trackerManager.GetCoMTrackerData(out rawComData);
         double4x4 comPose = math.mul(robotFrameInv, ToDouble4x4(rawComData.PoseMatrix));
         double3 comPositionPrev = comPose.c3.xyz;
-        double3x3 R_comPrev = new double3x3(comPose);
+        double3x3 R_comPrev = new double3x3(comPose.c0.xyz, comPose.c1.xyz, comPose.c2.xyz);
         double3 comLinearVelocity = double3.zero;
         double3 comAngularVelocity = double3.zero;
         ForcePlateData netFPData;
@@ -180,7 +180,7 @@ public class RobotController : MonoBehaviour
             
             comPose = math.mul(robotFrameInv, ToDouble4x4(rawComData.PoseMatrix));
             double3 comPosition = comPose.c3.xyz;
-            double3x3 R_com = new double3x3(comPose);
+            double3x3 R_com = new double3x3(comPose.c0.xyz, comPose.c1.xyz, comPose.c2.xyz);
 
             double3 rawLinearVelocity = (comPosition - comPositionPrev) / dt;
             double3x3 R_diff = math.mul(R_com, math.transpose(R_comPrev));

@@ -131,7 +131,7 @@ public class MPCSolver : BaseController<double[]>
         endEffectorPose = math.mul(robotFrameInv, rawEePose);
         comPose = math.mul(robotFrameInv, rawComPose);
         
-        double3x3 R_com = new double3x3(comPose);
+        double3x3 R_com = new double3x3(comPose.c0.xyz, comPose.c1.xyz, comPose.c2.xyz);
         x0 = new RBState(
             comPose.c3.xyz,
             RotationMatrixToEulerZYX(R_com),
@@ -310,9 +310,9 @@ public class MPCSolver : BaseController<double[]>
 
             // Store (Q * (Ax + d - xref)) for the backward pass
             freeResponseError[k].p = error.p * Q_pos;
-            freeResponseError[k].th = error.th * Q_ori;
+            freeResponseError[k].th = error.th * Q_Theta;
             freeResponseError[k].v = error.v * Q_vel;
-            freeResponseError[k].w = error.w * Q_ang;
+            freeResponseError[k].w = error.w * Q_omega;
         }
 
         // 2. Backward Pass: Adjoint Calculation (Co-state)
