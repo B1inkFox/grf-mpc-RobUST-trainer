@@ -101,13 +101,13 @@ public class CableTensionPlanner
         // Build Structure Matrix using SIMD operations
         for (int i = 0; i < numCables; i++)
         {
-            // Transform attachment point to robot frame using SIMD
+            // Transform attachment point to robot frame
             double3 attachLocal = robot.LocalAttachmentPoints[i];
             double3 attachRobotFrame = TransformPoint(eeToRobotFrame, attachLocal);
 
             // Calculate cable direction vector (pulley - attachment)
             double3 cableVec = robot.FramePulleyPositions[i] - attachRobotFrame;
-            double3 u_i = normalize(cableVec); // SIMD normalized
+            double3 u_i = normalize(cableVec); 
 
             // Calculate torque arm: from belt center to attachment point
             double3 r_local = attachLocal - robot.BeltCenter_EE_Frame;

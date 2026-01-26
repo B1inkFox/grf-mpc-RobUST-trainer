@@ -33,6 +33,9 @@ public class RobotController : MonoBehaviour
     [Tooltip("Enable or disable sending commands to LabVIEW.")]
     public bool isLabviewControlEnabled = true;
 
+    public enum CONTROL_MODE { OFF, TRANSPARENT, MPC, IMPEDANCE }
+    public volatile CONTROL_MODE currentControlMode = CONTROL_MODE.OFF;
+
     [Header("Robot Geometry Configuration")]
     [Tooltip("Number of cables in the system.")]
     public int numCables = 8;
@@ -52,6 +55,7 @@ public class RobotController : MonoBehaviour
 
     private RobUSTDescription robotDescription;
     private MPCSolver controller;
+    private CableTensionPlanner tensionPlanner;
 
     // Static frame reference captured only at startup to prevent drift
     private TrackerData robot_frame_tracker;
@@ -124,6 +128,7 @@ public class RobotController : MonoBehaviour
 
         // Initialize Controller Here
         controller = new MPCSolver(robotDescription, 0.05, 10);
+        tensionPlanner = new CableTensionPlanner(robotDescription);
 
         controllerThread = new Thread(controlLoop)
         {
@@ -136,6 +141,14 @@ public class RobotController : MonoBehaviour
         controllerThread.Start();
     }
 
+    private void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.O)) { currentControlMode = CONTROL_MODE.OFF; }
+        if (Input.GetKeyDown(KeyCode.T)) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
+        if (Input.GetKeyDown(KeyCode.M)) { currentControlMode = CONTROL_MODE.MPC; }
+        if (Input.GetKeyDown(KeyCode.I)) { currentControlMode = CONTROL_MODE.IMPEDANCE; }
+    }
+
     /// <summary>
     ///  This control loop is the main "driver" of a `Controller` instance. 
     ///  It needs to grab the latest tracker data, update visuals, compute cable tensions, and send commands to LabVIEW.
@@ -144,82 +157,59 @@ public class RobotController : MonoBehaviour
     private void controlLoop()
     {
         double ctrl_freq = 100.0;
-        double dt = 1.0 / ctrl_freq;
-        TrackerData rawComData, rawEndEffectorData;
         Span<double> motor_tension_command = stackalloc double[14];
+        SensorFilter filter_10Hz = new SensorFilter(ctrl_freq, 10.0, robot_frame_tracker);
 
-        double4x4 robotFrameInv = math.fastinverse(ToDouble4x4(robot_frame_tracker.PoseMatrix));
-
-        // Low-pass filter: α = dt / (τ + dt), where τ = 1/(2πfc), fc = cutoff frequency
-        double filterCutoffHz = 10.0;
-        double tau = 1.0 / (2.0 * math.PI * filterCutoffHz);
-        double alpha = dt / (tau + dt);
-        // Initialize previous state before loop
-        trackerManager.GetCoMTrackerData(out rawComData);
-        double4x4 comPose = math.mul(robotFrameInv, ToDouble4x4(rawComData.PoseMatrix));
-        double3 comPositionPrev = comPose.c3.xyz;
-        double3x3 R_comPrev = new double3x3(comPose.c0.xyz, comPose.c1.xyz, comPose.c2.xyz);
-        double3 comLinearVelocity = double3.zero;
-        double3 comAngularVelocity = double3.zero;
-        ForcePlateData netFPData;
-
-        // loop setup
         double system_frequency = System.Diagnostics.Stopwatch.Frequency;
         double ticksToNs = 1_000_000_000.0 / system_frequency;
         long intervalTicks = (long)(system_frequency / ctrl_freq);
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
         long lastLoopTick = System.Diagnostics.Stopwatch.GetTimestamp();
+
         while (isRunning)
         {
             long loopStartTick = System.Diagnostics.Stopwatch.GetTimestamp();
             s_IntervalNs.Value = (long)((loopStartTick - lastLoopTick) * ticksToNs);
             lastLoopTick = loopStartTick;
 
-            trackerManager.GetEndEffectorTrackerData(out rawEndEffectorData);
-            trackerManager.GetCoMTrackerData(out rawComData);
+            trackerManager.GetEndEffectorTrackerData(out TrackerData rawEndEffectorData);
+            trackerManager.GetCoMTrackerData(out TrackerData rawComData);
+            forcePlateManager.GetNetForcePlateData(out ForcePlateData netFPData);
             
-            comPose = math.mul(robotFrameInv, ToDouble4x4(rawComData.PoseMatrix));
-            double3 comPosition = comPose.c3.xyz;
-            double3x3 R_com = new double3x3(comPose.c0.xyz, comPose.c1.xyz, comPose.c2.xyz);
+            filter_10Hz.Update(rawComData, netFPData);
 
-            double3 rawLinearVelocity = (comPosition - comPositionPrev) / dt;
-            double3x3 R_diff = math.mul(R_com, math.transpose(R_comPrev));
-            double3 rawAngularVelocity = new double3(
-                R_diff.c1.z - R_diff.c2.y,
-                R_diff.c2.x - R_diff.c0.z,
-                R_diff.c0.y - R_diff.c1.x
-            ) / (2.0 * dt);
-            // Apply low-pass filter and update prev state
-            comLinearVelocity = alpha * rawLinearVelocity + (1.0 - alpha) * comLinearVelocity;
-            comAngularVelocity = alpha * rawAngularVelocity + (1.0 - alpha) * comAngularVelocity;
-            comPositionPrev = comPosition;
-            R_comPrev = R_com;
+            double[] solver_tensions = null;
+            switch (currentControlMode)
+            {
+                case CONTROL_MODE.OFF:
+                    motor_tension_command.Clear();
+                    break;
+                case CONTROL_MODE.TRANSPARENT:
+                    Wrench goalWrench; // zero wrench
+                    solver_tensions = tensionPlanner.CalculateTensions(rawEndEffectorData.PoseMatrix, goalWrench, robot_frame_tracker.PoseMatrix);
+                    MapTensionsToMotors(solver_tensions, motor_tension_command);
+                    break;
+                case CONTROL_MODE.MPC:
+                    ForcePlateData filteredFPData = new ForcePlateData(filter_10Hz.FilteredGRF, filter_10Hz.FilteredCoP);
+                    controller.UpdateState(robot_frame_tracker, rawEndEffectorData, rawComData, filter_10Hz.LinearVelocity, filter_10Hz.AngularVelocity, filteredFPData);
+                    solver_tensions = controller.computeNextControl();
+                    MapTensionsToMotors(solver_tensions, motor_tension_command);
+                    break;
+                case CONTROL_MODE.IMPEDANCE:
+                    motor_tension_command.Clear(); // Placeholder
+                    break;
+            }
 
-            forcePlateManager.GetNetForcePlateData(out netFPData);
-            controller.UpdateState(robot_frame_tracker, rawEndEffectorData, rawComData, comLinearVelocity, comAngularVelocity, netFPData);
-            double[] solver_tensions = controller.computeNextControl();
-
-            // Send the calculated tensions to LabVIEW
-            MapTensionsToMotors(solver_tensions, motor_tension_command);
             tcpCommunicator.UpdateTensionSetpoint(motor_tension_command);
-            
-            // Cache tracker data for visualization 
+
             visualizer.SetTrackerData(rawComData, rawEndEffectorData, robot_frame_tracker);
 
             s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
-            while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime)
-            {
-                // (BURN CPU cycles to hold timing precision)
-                // prevents OS scheduler from yielding the thread 
-            }
+            while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime) { } // BURN wait
+
             nextTargetTime += intervalTicks;
-            
-            // If we are late (processing took > 10 ms), reset the pacer
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (now > nextTargetTime)
-            {
-                nextTargetTime = now + intervalTicks;
-            }
+            if (now > nextTargetTime) nextTargetTime = now + intervalTicks; // drift correction
         }
     }
 
@@ -242,7 +232,7 @@ public class RobotController : MonoBehaviour
         return math.mul(frameInv, eePose);
     }
 
-    // Local helper (keep near RobotController; same as you already used elsewhere)
+    // Local helper (keep near RobotController; same as already used elsewhere)
     private static double4x4 ToDouble4x4(in Matrix4x4 m)
     {
         return new double4x4(
@@ -287,6 +277,61 @@ public class RobotController : MonoBehaviour
         {
             int motorIndex = robotDescription.SolverToMotorMap[i];
             output[motorIndex] = solverResult[i];
+        }
+    }
+
+    private class SensorFilter
+    {
+        private readonly double dt, alpha;
+        private readonly double4x4 robotFrameInv;
+        private double3 comPositionPrev;
+        private double3x3 R_comPrev;
+        private bool isFirstUpdate = true;
+
+        public double3 LinearVelocity { get; private set; }
+        public double3 AngularVelocity { get; private set; }
+        public double3 FilteredGRF { get; private set; }
+        public double3 FilteredCoP { get; private set; }
+
+        public SensorFilter(double frequency, double cutoffHz, TrackerData frameTracker)
+        {
+            dt = 1.0 / frequency;
+            double tau = 1.0 / (2.0 * math.PI * cutoffHz);
+            alpha = dt / (tau + dt);
+            robotFrameInv = math.fastinverse(ToDouble4x4(frameTracker.PoseMatrix));
+        }
+
+        public void Update(in TrackerData rawComData, in ForcePlateData rawForceData)
+        {
+            double4x4 comPose = math.mul(robotFrameInv, ToDouble4x4(rawComData.PoseMatrix));
+            double3 comPosition = comPose.c3.xyz;
+            double3x3 R_com = new double3x3(comPose.c0.xyz, comPose.c1.xyz, comPose.c2.xyz);
+
+            if (isFirstUpdate)
+            {
+                comPositionPrev = comPosition;
+                R_comPrev = R_com;
+                FilteredGRF = rawForceData.Force;
+                FilteredCoP = rawForceData.CenterOfPressure;
+                isFirstUpdate = false;
+                return;
+            }
+
+            double3 rawLinVel = (comPosition - comPositionPrev) / dt;
+            double3x3 R_diff = math.mul(R_com, math.transpose(R_comPrev));
+            double3 rawAngVel = new double3(
+                R_diff.c1.z - R_diff.c2.y,
+                R_diff.c2.x - R_diff.c0.z,
+                R_diff.c0.y - R_diff.c1.x
+            ) / (2.0 * dt);
+
+            LinearVelocity = (alpha * rawLinVel) + ((1.0 - alpha) * LinearVelocity);
+            AngularVelocity = (alpha * rawAngVel) + ((1.0 - alpha) * AngularVelocity);
+            FilteredGRF = (alpha * rawForceData.Force) + ((1.0 - alpha) * FilteredGRF);
+            FilteredCoP = (alpha * rawForceData.CenterOfPressure) + ((1.0 - alpha) * FilteredCoP);
+
+            comPositionPrev = comPosition;
+            R_comPrev = R_com;
         }
     }
     

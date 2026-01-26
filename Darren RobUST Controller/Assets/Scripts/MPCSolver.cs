@@ -331,7 +331,6 @@ public class MPCSolver : BaseController<double[]>
             // --- Linear Cost Gradient (g_k) ---
             // g = 2 * B^T * p
             int stepOffset = k * numCables;
-            
             for (int i = 0; i < numCables; i++)
             {
                 double val_v = math.dot(B_v[i], p.v);
@@ -378,11 +377,25 @@ public class MPCSolver : BaseController<double[]>
     }
 
     /// <summary>
-    /// Provides access to reference trajectory buffer for external population.
+    /// Updates the local reference trajectory from a global plan.
+    /// Handles extraction of the relevant window and padding with the final goal.
     /// </summary>
-    public Span<RBState> GetXref()
+    /// <param name="globalPlan">The complete trajectory reference.</param>
+    /// <param name="startIndex">Current time index in the global plan.</param>
+    public void UpdateReferenceTrajectory(ReadOnlySpan<RBState> globalPlan, int startIndex)
     {
-        return Xref.AsSpan();
+        if (globalPlan.IsEmpty) return;
+
+        int availableSteps = math.max(0, globalPlan.Length - startIndex);
+        int copyCount = math.min(horizon, availableSteps);
+
+        if (copyCount > 0) globalPlan.Slice(startIndex, copyCount).CopyTo(Xref.AsSpan(0, copyCount));
+
+        if (copyCount < horizon)
+        {
+            RBState finalGoal = globalPlan[globalPlan.Length - 1];
+            Xref.AsSpan(copyCount).Fill(finalGoal);
+        }
     }
 
     // ============ Visualization Helpers ============
