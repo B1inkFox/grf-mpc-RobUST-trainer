@@ -104,32 +104,23 @@ public class MPCSolver : BaseController<double[]>
     
     /// <summary>
     /// Updates cached state before solving. Call this every control loop iteration.
-    /// Converts raw TrackerData to robot frame. Velocities are computed externally and passed in.
+    /// Expects poses to be pre-transformed into the robot frame.
     /// </summary>
-    /// <param name="rawRobotFrame">Static robot frame tracker data</param>
-    /// <param name="rawEndEffector">Current end effector tracker data</param>
-    /// <param name="rawComTracker">Current CoM tracker data</param>
-    /// <param name="linearVelocity">CoM linear velocity in world/robot frame [m/s]</param>
-    /// <param name="angularVelocity">CoM angular velocity in world/robot frame [rad/s]</param>
-    /// <param name="netFPData">Net force plate data</param>
-    public void UpdateState(in TrackerData rawRobotFrame, in TrackerData rawEndEffector, 
-                            in TrackerData rawComTracker, in double3 linearVelocity,
-                            in double3 angularVelocity, in ForcePlateData netFPData)
+    /// <param name="eePose_RF">End effector pose in robot frame.</param>
+    /// <param name="comPose_RF">CoM pose in robot frame.</param>
+    /// <param name="linearVelocity">CoM linear velocity in robot frame [m/s]</param>
+    /// <param name="angularVelocity">CoM angular velocity in robot frame [rad/s]</param>
+    /// <param name="netFPData">Net force plate data (already in robot frame)</param>
+    public void UpdateState(double4x4 eePose_RF, double4x4 comPose_RF, 
+                            in double3 linearVelocity, in double3 angularVelocity, 
+                            in ForcePlateData netFPData)
     {
         // Store force plate data (already in robot frame)
         netGRF = netFPData.Force;
         netCoP = netFPData.CenterOfPressure;
 
-        // Convert to double4x4 and compute robot frame inverse
-        robotFramePose = ToDouble4x4(rawRobotFrame.PoseMatrix);
-        double4x4 robotFrameInv = math.fastinverse(robotFramePose);
-        
-        double4x4 rawEePose = ToDouble4x4(rawEndEffector.PoseMatrix);
-        double4x4 rawComPose = ToDouble4x4(rawComTracker.PoseMatrix);
-        
-        // Transform poses to robot frame: T = T_frame^-1 * T_raw
-        endEffectorPose = math.mul(robotFrameInv, rawEePose);
-        comPose = math.mul(robotFrameInv, rawComPose);
+        endEffectorPose = eePose_RF;
+        comPose = comPose_RF;
         
         double3x3 R_com = new double3x3(comPose.c0.xyz, comPose.c1.xyz, comPose.c2.xyz);
         x0 = new RBState(
@@ -474,13 +465,4 @@ public class MPCSolver : BaseController<double[]>
         return new double3(roll, pitch, yaw);  // [Θx, Θy, Θz]
     }
     
-    private static double4x4 ToDouble4x4(in Matrix4x4 m)
-    {
-        return new double4x4(
-            m.m00, m.m01, m.m02, m.m03,
-            m.m10, m.m11, m.m12, m.m13,
-            m.m20, m.m21, m.m22, m.m23,
-            m.m30, m.m31, m.m32, m.m33
-        );
-    }
 }

@@ -86,16 +86,10 @@ public class CableTensionPlanner
     /// Calculates the desired cable tensions based on real-time tracker and force data.
     /// All calculations use Unity.Mathematics SIMD types for performance.
     /// </summary>
-    /// <param name="endEffectorPose">The 4x4 pose matrix of the end-effector in the world coordinate system.</param>
+    /// <param name="eeInRobotFrame">The 4x4 pose matrix of the End-Effector already transformed into Robot Frame.</param>
     /// <param name="desiredWrench">The desired wrench (force and torque) to be applied by the cables.</param>
-    /// <param name="robotFramePose">The transformation matrix of the frame-mounted vive tracker</param>
-    public double[] CalculateTensions(Matrix4x4 endEffectorPose, Wrench desiredWrench, Matrix4x4 robotFramePose)
+    public double[] CalculateTensions(double4x4 eeInRobotFrame, Wrench desiredWrench)
     {
-        // Convert to Unity.Mathematics double4x4 for SIMD operations (stack allocated)
-        double4x4 eeToWorld = ToDouble4x4(endEffectorPose);
-        double4x4 robotFrameInv = math.fastinverse(ToDouble4x4(robotFramePose));
-        double4x4 eeToRobotFrame = mul(robotFrameInv, eeToWorld);
-
         int numCables = robot.NumCables;
         
         // Build Structure Matrix using SIMD operations
@@ -103,7 +97,7 @@ public class CableTensionPlanner
         {
             // Transform attachment point to robot frame
             double3 attachLocal = robot.LocalAttachmentPoints[i];
-            double3 attachRobotFrame = TransformPoint(eeToRobotFrame, attachLocal);
+            double3 attachRobotFrame = TransformPoint(eeInRobotFrame, attachLocal);
 
             // Calculate cable direction vector (pulley - attachment)
             double3 cableVec = robot.FramePulleyPositions[i] - attachRobotFrame;
@@ -111,7 +105,7 @@ public class CableTensionPlanner
 
             // Calculate torque arm: from belt center to attachment point
             double3 r_local = attachLocal - robot.BeltCenter_EE_Frame;
-            double3 r_robotFrame = TransformVector(eeToRobotFrame, r_local);
+            double3 r_robotFrame = TransformVector(eeInRobotFrame, r_local);
             
             // Torque component using SIMD cross product
             double3 torque_i = cross(r_robotFrame, u_i);
@@ -171,20 +165,6 @@ public class CableTensionPlanner
     }
 
     // ============ Unity.Mathematics Helpers (SIMD) ============
-
-    /// <summary>
-    /// Convert Unity Matrix4x4 to Unity.Mathematics double4x4.
-    /// Stack-allocated, zero heap allocation.
-    /// </summary>
-    private static double4x4 ToDouble4x4(Matrix4x4 m)
-    {
-        return new double4x4(
-            m.m00, m.m01, m.m02, m.m03,
-            m.m10, m.m11, m.m12, m.m13,
-            m.m20, m.m21, m.m22, m.m23,
-            m.m30, m.m31, m.m32, m.m33
-        );
-    }
 
     /// <summary>
     /// Transform point by 4x4 matrix (includes translation).

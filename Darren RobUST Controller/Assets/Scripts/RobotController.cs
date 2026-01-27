@@ -150,7 +150,7 @@ public class RobotController : MonoBehaviour
     }
 
     /// <summary>
-    ///  This control loop is the main "driver" of a `Controller` instance. 
+    ///  This control loop is the main "driver" of one or more `Controller` instances. 
     ///  It needs to grab the latest tracker data, update visuals, compute cable tensions, and send commands to LabVIEW.
     ///  a `Controller` functions more like a `Control Policy/Solver` here, with RobotController managing the data flow.
     /// </summary>
@@ -158,7 +158,11 @@ public class RobotController : MonoBehaviour
     {
         double ctrl_freq = 100.0;
         Span<double> motor_tension_command = stackalloc double[14];
-        SensorFilter filter_10Hz = new SensorFilter(ctrl_freq, 10.0, robot_frame_tracker);
+        double[] solver_tensions = null;
+        double4x4 framePose = ToDouble4x4(robot_frame_tracker.PoseMatrix);
+        double4x4 frameInv = math.fastinverse(framePose);
+        
+        SensorFilter filter_10Hz = new SensorFilter(ctrl_freq, 10.0);
 
         double system_frequency = System.Diagnostics.Stopwatch.Frequency;
         double ticksToNs = 1_000_000_000.0 / system_frequency;
@@ -176,9 +180,11 @@ public class RobotController : MonoBehaviour
             trackerManager.GetCoMTrackerData(out TrackerData rawComData);
             forcePlateManager.GetNetForcePlateData(out ForcePlateData netFPData);
             
-            filter_10Hz.Update(rawComData, netFPData);
+            double4x4 eePose_RF = math.mul(frameInv, ToDouble4x4(rawEndEffectorData.PoseMatrix));
+            double4x4 comPose_RF = math.mul(frameInv, ToDouble4x4(rawComData.PoseMatrix));
+            
+            filter_10Hz.Update(comPose_RF, netFPData);
 
-            double[] solver_tensions = null;
             switch (currentControlMode)
             {
                 case CONTROL_MODE.OFF:
@@ -186,12 +192,12 @@ public class RobotController : MonoBehaviour
                     break;
                 case CONTROL_MODE.TRANSPARENT:
                     Wrench goalWrench; // zero wrench
-                    solver_tensions = tensionPlanner.CalculateTensions(rawEndEffectorData.PoseMatrix, goalWrench, robot_frame_tracker.PoseMatrix);
+                    solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, goalWrench);
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
                     break;
                 case CONTROL_MODE.MPC:
                     ForcePlateData filteredFPData = new ForcePlateData(filter_10Hz.FilteredGRF, filter_10Hz.FilteredCoP);
-                    controller.UpdateState(robot_frame_tracker, rawEndEffectorData, rawComData, filter_10Hz.LinearVelocity, filter_10Hz.AngularVelocity, filteredFPData);
+                    controller.UpdateState(eePose_RF, comPose_RF, filter_10Hz.LinearVelocity, filter_10Hz.AngularVelocity, filteredFPData);
                     solver_tensions = controller.computeNextControl();
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
                     break;
@@ -280,10 +286,10 @@ public class RobotController : MonoBehaviour
         }
     }
 
+    // private class for recursively filtering sensor data
     private class SensorFilter
     {
         private readonly double dt, alpha;
-        private readonly double4x4 robotFrameInv;
         private double3 comPositionPrev;
         private double3x3 R_comPrev;
         private bool isFirstUpdate = true;
@@ -293,19 +299,17 @@ public class RobotController : MonoBehaviour
         public double3 FilteredGRF { get; private set; }
         public double3 FilteredCoP { get; private set; }
 
-        public SensorFilter(double frequency, double cutoffHz, TrackerData frameTracker)
+        public SensorFilter(double frequency, double cutoffHz)
         {
             dt = 1.0 / frequency;
             double tau = 1.0 / (2.0 * math.PI * cutoffHz);
             alpha = dt / (tau + dt);
-            robotFrameInv = math.fastinverse(ToDouble4x4(frameTracker.PoseMatrix));
         }
 
-        public void Update(in TrackerData rawComData, in ForcePlateData rawForceData)
+        public void Update(double4x4 comPose_RF, in ForcePlateData rawForceData)
         {
-            double4x4 comPose = math.mul(robotFrameInv, ToDouble4x4(rawComData.PoseMatrix));
-            double3 comPosition = comPose.c3.xyz;
-            double3x3 R_com = new double3x3(comPose.c0.xyz, comPose.c1.xyz, comPose.c2.xyz);
+            double3 comPosition = comPose_RF.c3.xyz;
+            double3x3 R_com = new double3x3(comPose_RF.c0.xyz, comPose_RF.c1.xyz, comPose_RF.c2.xyz);
 
             if (isFirstUpdate)
             {
