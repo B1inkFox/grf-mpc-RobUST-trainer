@@ -63,6 +63,9 @@ public class RobotController : MonoBehaviour
     private Thread controllerThread;
     private volatile bool isRunning = false;
 
+    // Global Reference Trajectory
+    private RBState[] Xref_global;
+    private long trajectoryIndex = 0; // Current index in controlLoop
 
     private void Start()
     {
@@ -89,6 +92,17 @@ public class RobotController : MonoBehaviour
         robotDescription = RobUSTDescription.Create(numCables, chestAPDistance, chestMLDistance, 
                                                     userMass, userShoulderWidth, userHeight);
         Debug.Log($"RobUST description created: {numCables} cables, AP={chestAPDistance}m, ML={chestMLDistance}m");
+
+        // Initialize Global Reference Trajectory
+        Xref_global = new RBState[2000]; // 20 seconds buffer
+        // Hand-coded static point (Robot Frame: x=0, y=0, z~height)
+        RBState staticPoint = new RBState(
+            new double3(0, 0.8, userHeight * 0.67), 
+            new double3(0, 0, -math.PI/2), 
+            new double3(0, 0, 0), 
+            new double3(0, 0, 0)
+        );
+        for (int i = 0; i < Xref_global.Length; i++) Xref_global[i] = staticPoint;
 
         if (!trackerManager.Initialize())
         {
@@ -128,7 +142,7 @@ public class RobotController : MonoBehaviour
         }
 
         // Initialize Controller Here
-        controller = new MPCSolver(robotDescription, 0.05, 10);
+        controller = new MPCSolver(robotDescription, 0.01, 50);
         impedanceController = new ImpedanceController();
         tensionPlanner = new CableTensionPlanner(robotDescription);
 
@@ -145,10 +159,10 @@ public class RobotController : MonoBehaviour
 
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.O)) { currentControlMode = CONTROL_MODE.OFF; }
+        if (Input.GetKeyDown(KeyCode.O)) { currentControlMode = CONTROL_MODE.OFF; trajectoryIndex = 0; }
         if (Input.GetKeyDown(KeyCode.T)) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
         if (Input.GetKeyDown(KeyCode.M)) { currentControlMode = CONTROL_MODE.MPC; }
-        if (Input.GetKeyDown(KeyCode.I)) { currentControlMode = CONTROL_MODE.IMPEDANCE; }
+        if (Input.GetKeyDown(KeyCode.I)) { currentControlMode = CONTROL_MODE.IMPEDANCE; }        
     }
 
     /// <summary>
@@ -196,25 +210,25 @@ public class RobotController : MonoBehaviour
                     Wrench goalWrench; // zero wrench
                     solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, goalWrench);
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
+                    trajectoryIndex++;
                     break;
                 case CONTROL_MODE.MPC:
                     ForcePlateData filteredFPData = new ForcePlateData(filter_10Hz.FilteredGRF, filter_10Hz.FilteredCoP);
+                    controller.UpdateReferenceTrajectory(Xref_global.AsSpan(), (int)trajectoryIndex);
                     controller.UpdateState(eePose_RF, comPose_RF, filter_10Hz.CoMLinearVelocity, filter_10Hz.CoMAngularVelocity, filteredFPData);
                     solver_tensions = controller.computeNextControl();
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
+                    trajectoryIndex++;
                     break;
                 case CONTROL_MODE.IMPEDANCE:
-                    RBState target = new RBState(
-                        eePose_RF.c3.xyz, // Default center - current ee_pos
-                        double3.zero, // Zero orientation
-                        double3.zero, 
-                        double3.zero
-                    ); // need to calculate target based on some logic
+                    int safeIdx = (trajectoryIndex < Xref_global.Length) ? (int)trajectoryIndex : Xref_global.Length - 1;
+                    RBState target = ComputeEERefFromCoMRef(Xref_global[safeIdx], comPose_RF, eePose_RF);
 
                     impedanceController.UpdateState(eePose_RF, filter_10Hz.EELinearVelocity, filter_10Hz.EEAngularVelocity, target);
                     Wrench goalWrench = impedanceController.computeNextControl();
                     solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, goalWrench);
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
+                    trajectoryIndex++;
                     break;
             }
 
@@ -230,6 +244,28 @@ public class RobotController : MonoBehaviour
             if (now > nextTargetTime) nextTargetTime = now + intervalTicks; // drift correction
         }
     }
+
+    /// <summary>
+    /// Computes the corresponding End-Effector reference state from a CoM reference state.
+    /// Assumes rigid body kinematics where the offset r = (p_ee - p_com) is constant in the body frame,
+    /// so we apply the current global offset to the reference.
+    /// </summary>
+    private RBState ComputeEERefFromCoMRef(RBState comRefState, double4x4 curr_comPose, double4x4 curr_eePose)
+    {
+        //    r = p_ee - p_com
+        double3 r_global = curr_eePose.c3.xyz - curr_comPose.c3.xyz;
+        double3 p_ee_ref = comRefState.p + r_global;
+        // Compute EE Reference Velocity: v_ee_ref = v_com_ref + (w_ref x r)
+        double3 v_ee_ref = comRefState.v + math.cross(comRefState.w, r_global);
+        //    Orientation and Angular Velocity are shared for a rigid body
+        return new RBState(
+            p_ee_ref,       
+            comRefState.th, 
+            v_ee_ref,       
+            comRefState.w   
+        );
+    }
+
 
     /// <summary>
     /// Helper method to get chest tracker's position relative to the static frame reference.
