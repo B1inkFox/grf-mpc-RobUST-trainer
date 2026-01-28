@@ -8,27 +8,19 @@ public class RobotVisualizer : MonoBehaviour
     public bool isActive = true;
 
     [Header("Body Geometry (Ellipsoid)")]
-    public Vector3 ellipsoidRadiiMeters = new Vector3(0.20f, 0.15f, 0.30f);
-    public Material bodyMaterial;
+    public Vector3 ellipsoidRadii = new Vector3(0.1f, 0.1f, 0.1f);
 
     [Header("Force Capsule Settings")]
     [Tooltip("Meters per Newton for capsule length.")]
     public float metersPerNewton = 0.0025f;
 
-    [Tooltip("Minimum capsule length (meters) for visibility.")]
-    public float minCapsuleLength = 0.02f;
-
     [Tooltip("Capsule radius (meters).")]
-    public float capsuleRadius = 0.02f;
-
-    [Tooltip("Hide capsule when |F| < eps.")]
-    public float forceEps = 1e-6f;
+    public float capsuleRadius = 0.01f;
 
     // Scene graph
     private Transform bodyRoot;
     private Transform ellipsoidTf;
     private Transform beltAnchorTf;
-
     // Force capsules (Transforms)
     private Transform beltForceCapsuleTf;
     private Transform totalForceCapsuleTf;
@@ -36,55 +28,52 @@ public class RobotVisualizer : MonoBehaviour
     private Transform grf1CapsuleTf;
 
     // Config
-    private double3 beltOffsetBody = double3.zero;
-
+    private double3 beltOffsetBody;
     // Thread-safe cached inputs
     private readonly object dataLock = new object();
     private bool hasNewData = false;
 
     private double3 cachedComWorld;
-    private quaternion cachedTrunkWorld;
-
+    private quaternion cachedTrunkOrientationWorld;
     private double3 cachedBeltForceWorld;
     private double3 cachedTotalForceWorld;
-
     private double3 cachedCop0World, cachedGrf0World;
     private double3 cachedCop1World, cachedGrf1World;
 
     // ============ Public API ============
 
-    public bool Initialize(in double3 beltCenterOffsetBodyFrame)
+    public bool Initialize(in double3 beltOffsetBodyFrame, in double3 bodyInertia)
     {
-        beltOffsetBody = beltCenterOffsetBodyFrame;
+        beltOffsetBody = beltOffsetBodyFrame;
+        ellipsoidRadii = new Vector3((float)bodyInertia.x, (float)bodyInertia.y, (float)bodyInertia.z);
 
         BuildSceneGraph();
-        ApplyBodyEllipsoidScale();
-
+    
         hasNewData = false;
         return true;
     }
 
     public void PushState(
         in double3 comWorld,
-        in quaternion trunkWorld,
+        in quaternion trunkOrientationWorld,
         in double3 beltForceWorld,
-        in double3 totalForceWorld,
         in double3 cop0World, in double3 grf0World,
         in double3 cop1World, in double3 grf1World)
     {
         lock (dataLock)
         {
             cachedComWorld = comWorld;
-            cachedTrunkWorld = trunkWorld;
+            cachedTrunkOrientationWorld = trunkOrientationWorld;
 
             cachedBeltForceWorld = beltForceWorld;
-            cachedTotalForceWorld = totalForceWorld;
-
+            
             cachedCop0World = cop0World;
             cachedGrf0World = grf0World;
 
             cachedCop1World = cop1World;
             cachedGrf1World = grf1World;
+
+            cachedTotalForceWorld = beltForceWorld + grf0World + grf1World;
 
             hasNewData = true;
         }
@@ -95,7 +84,7 @@ public class RobotVisualizer : MonoBehaviour
         if (!isActive || bodyRoot == null) return;
 
         double3 comWorld;
-        quaternion trunkWorld;
+        quaternion trunkOrientationWorld;
         double3 beltForceWorld, totalForceWorld;
         double3 cop0World, grf0World, cop1World, grf1World;
 
@@ -104,7 +93,7 @@ public class RobotVisualizer : MonoBehaviour
             if (!hasNewData) return;
 
             comWorld = cachedComWorld;
-            trunkWorld = cachedTrunkWorld;
+            trunkOrientationWorld = cachedTrunkOrientationWorld;
 
             beltForceWorld = cachedBeltForceWorld;
             totalForceWorld = cachedTotalForceWorld;
@@ -120,7 +109,7 @@ public class RobotVisualizer : MonoBehaviour
 
         // 1) Body pose
         bodyRoot.position = ToVector3(comWorld);
-        bodyRoot.rotation = ToUnityQuaternion(trunkWorld);
+        bodyRoot.rotation = ToUnityQuaternion(trunkOrientationWorld);
 
         // 2) Belt anchor (fixed offset in BODY frame)
         beltAnchorTf.localPosition = ToVector3(beltOffsetBody);
@@ -155,12 +144,9 @@ public class RobotVisualizer : MonoBehaviour
         ellipsoidTf = ellipsoidGO.transform;
         ellipsoidTf.SetParent(bodyRoot, false);
         DestroyColliderIfExists(ellipsoidGO);
-
-        if (bodyMaterial != null)
-        {
-            var r = ellipsoidGO.GetComponent<MeshRenderer>();
-            if (r != null) r.material = bodyMaterial;
-        }
+        Renderer r = ellipsoidGO.GetComponent<Renderer>();
+        r.material.color = Color.blue;
+        ellipsoidTf.localScale = new Vector3(2f * ellipsoidRadii.x, 2f * ellipsoidRadii.y, 2f * ellipsoidRadii.z);
 
         // Belt anchor (child of body)
         var beltAnchorGO = new GameObject("BeltAnchor");
@@ -168,31 +154,26 @@ public class RobotVisualizer : MonoBehaviour
         beltAnchorTf.SetParent(bodyRoot, false);
 
         // Force capsules
-        beltForceCapsuleTf = CreateForceCapsule("BeltForceCapsule", rootGO.transform).transform;
-        totalForceCapsuleTf = CreateForceCapsule("TotalForceCapsule", rootGO.transform).transform;
+        beltForceCapsuleTf = CreateForceCapsule("BeltForce_Capsule", rootGO.transform).transform;
+        totalForceCapsuleTf = CreateForceCapsule("TotalForce_Capsule", rootGO.transform).transform;
         grf0CapsuleTf = CreateForceCapsule("GRF0_Capsule", rootGO.transform).transform;
         grf1CapsuleTf = CreateForceCapsule("GRF1_Capsule", rootGO.transform).transform;
     }
 
-    private void ApplyBodyEllipsoidScale()
-    {
-        Vector3 radii = ellipsoidRadiiMeters;
-        ellipsoidTf.localScale = new Vector3(2f * radii.x, 2f * radii.y, 2f * radii.z);
-    }
-
     // ============ Capsule Force Rendering ============
 
+    /// <summary>
+    /// Initializes force capsule. Default length = 0 (force capsule reduces into sphere)
+    /// </summary>
     private GameObject CreateForceCapsule(string name, Transform parent)
     {
         var go = GameObject.CreatePrimitive(PrimitiveType.Capsule);
         go.name = name;
         go.transform.SetParent(parent, false);
+        Renderer r = go.GetComponent<Renderer>();
+        r.material.color = Color.green;
         DestroyColliderIfExists(go);
-
-        // Default small so it doesn't flash huge before first update
-        float L = Mathf.Max(minCapsuleLength, 2f * capsuleRadius);
-        ApplyCapsuleScale(go.transform, L);
-
+        ApplyCapsuleScale(go.transform, 0);
         return go;
     }
 
@@ -203,18 +184,19 @@ public class RobotVisualizer : MonoBehaviour
     private void UpdateForceCapsuleWorld(Transform capsuleTf, Vector3 anchorWorld, in double3 forceWorld)
     {
         float mag = (float)math.length(forceWorld);
+        Vector3 dir = new Vector3();
 
-        if (mag < forceEps)
+        if (mag < 0.1)
         {
-            if (capsuleTf.gameObject.activeSelf) capsuleTf.gameObject.SetActive(false);
-            return;
+            mag = 0;
+            dir = Vector3.up;
+        } else
+        {
+            dir = ToVector3(forceWorld / (double)mag);            
         }
-        if (!capsuleTf.gameObject.activeSelf) capsuleTf.gameObject.SetActive(true);
-
-        Vector3 dir = ToVector3(forceWorld / math.max(1e-12, (double)mag));
 
         // Length scales with magnitude
-        float L = mag * metersPerNewton + 2f * capsuleRadius;
+        float L = mag * metersPerNewton;
 
         // Orient: capsule's local Y axis points along dir
         capsuleTf.rotation = Quaternion.FromToRotation(Vector3.up, dir);
@@ -228,12 +210,11 @@ public class RobotVisualizer : MonoBehaviour
 
     /// <summary>
     /// Applies capsule radius and length. Unity capsule is oriented along Y.
-    /// Approximation: treat "unit capsule" height as 2, so scale.y = L/2.
+    /// Capsule is of lengthMeters+2*radius in length.
     /// </summary>
     private void ApplyCapsuleScale(Transform capsuleTf, float lengthMeters)
     {
-        float diameter = 2f * capsuleRadius;
-        capsuleTf.localScale = new Vector3(diameter, 0.5f * lengthMeters, diameter);
+        capsuleTf.localScale = new Vector3(2f * capsuleRadius, 0.5f * lengthMeters + capsuleRadius, 2f * capsuleRadius);
     }
 
     private static void DestroyColliderIfExists(GameObject go)
