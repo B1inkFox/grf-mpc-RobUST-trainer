@@ -55,6 +55,7 @@ public class RobotController : MonoBehaviour
 
     private RobUSTDescription robotDescription;
     private MPCSolver controller;
+    private ImpedanceController impedanceController;
     private CableTensionPlanner tensionPlanner;
 
     // Static frame reference captured only at startup to prevent drift
@@ -128,6 +129,7 @@ public class RobotController : MonoBehaviour
 
         // Initialize Controller Here
         controller = new MPCSolver(robotDescription, 0.05, 10);
+        impedanceController = new ImpedanceController();
         tensionPlanner = new CableTensionPlanner(robotDescription);
 
         controllerThread = new Thread(controlLoop)
@@ -183,7 +185,7 @@ public class RobotController : MonoBehaviour
             double4x4 eePose_RF = math.mul(frameInv, ToDouble4x4(rawEndEffectorData.PoseMatrix));
             double4x4 comPose_RF = math.mul(frameInv, ToDouble4x4(rawComData.PoseMatrix));
             
-            filter_10Hz.Update(comPose_RF, netFPData);
+            filter_10Hz.Update(comPose_RF, eePose_RF, netFPData);
 
             switch (currentControlMode)
             {
@@ -197,12 +199,28 @@ public class RobotController : MonoBehaviour
                     break;
                 case CONTROL_MODE.MPC:
                     ForcePlateData filteredFPData = new ForcePlateData(filter_10Hz.FilteredGRF, filter_10Hz.FilteredCoP);
-                    controller.UpdateState(eePose_RF, comPose_RF, filter_10Hz.LinearVelocity, filter_10Hz.AngularVelocity, filteredFPData);
+                    controller.UpdateState(eePose_RF, comPose_RF, filter_10Hz.CoMLinearVelocity, filter_10Hz.CoMAngularVelocity, filteredFPData);
                     solver_tensions = controller.computeNextControl();
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
                     break;
                 case CONTROL_MODE.IMPEDANCE:
-                    motor_tension_command.Clear(); // Placeholder
+                    RBState target = new RBState(
+                        eePose_RF.c3.xyz, // Default center - current ee_pos
+                        double3.zero, // Zero orientation
+                        double3.zero, 
+                        double3.zero
+                    );
+
+                    impedanceController.UpdateState(
+                        eePose_RF, 
+                        filter_10Hz.EELinearVelocity, 
+                        filter_10Hz.EEAngularVelocity, 
+                        target
+                    );
+
+                    Wrench impWrench = impedanceController.computeNextControl();
+                    solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, impWrench);
+                    MapTensionsToMotors(solver_tensions, motor_tension_command);
                     break;
             }
 
@@ -290,12 +308,24 @@ public class RobotController : MonoBehaviour
     private class SensorFilter
     {
         private readonly double dt, alpha;
+        
+        // CoM State
         private double3 comPositionPrev;
         private double3x3 R_comPrev;
+        
+        // End Effector State
+        private double3 eePositionPrev;
+        private double3x3 R_eePrev;
+
         private bool isFirstUpdate = true;
 
-        public double3 LinearVelocity { get; private set; }
-        public double3 AngularVelocity { get; private set; }
+        // outputs
+        public double3 CoMLinearVelocity { get; private set; }
+        public double3 CoMAngularVelocity { get; private set; }
+        
+        public double3 EELinearVelocity { get; private set; }
+        public double3 EEAngularVelocity { get; private set; }
+
         public double3 FilteredGRF { get; private set; }
         public double3 FilteredCoP { get; private set; }
 
@@ -306,36 +336,64 @@ public class RobotController : MonoBehaviour
             alpha = dt / (tau + dt);
         }
 
-        public void Update(double4x4 comPose_RF, in ForcePlateData rawForceData)
+        public void Update(double4x4 comPose_RF, double4x4 eePose_RF, in ForcePlateData rawForceData)
         {
             double3 comPosition = comPose_RF.c3.xyz;
             double3x3 R_com = new double3x3(comPose_RF.c0.xyz, comPose_RF.c1.xyz, comPose_RF.c2.xyz);
+            
+            double3 eePosition = eePose_RF.c3.xyz;
+            double3x3 R_ee = new double3x3(eePose_RF.c0.xyz, eePose_RF.c1.xyz, eePose_RF.c2.xyz);
 
             if (isFirstUpdate)
             {
                 comPositionPrev = comPosition;
                 R_comPrev = R_com;
+                
+                eePositionPrev = eePosition;
+                R_eePrev = R_ee;
+
                 FilteredGRF = rawForceData.Force;
                 FilteredCoP = rawForceData.CenterOfPressure;
                 isFirstUpdate = false;
                 return;
             }
 
-            double3 rawLinVel = (comPosition - comPositionPrev) / dt;
-            double3x3 R_diff = math.mul(R_com, math.transpose(R_comPrev));
-            double3 rawAngVel = new double3(
-                R_diff.c1.z - R_diff.c2.y,
-                R_diff.c2.x - R_diff.c0.z,
-                R_diff.c0.y - R_diff.c1.x
+            // --- CoM Velocities ---
+            double3 rawCoMLinVel = (comPosition - comPositionPrev) / dt;
+            
+            // Angular velocity from rotation difference: R_diff approx I + skew(omega * dt)
+            double3x3 R_com_diff = math.mul(R_com, math.transpose(R_comPrev));
+            double3 rawCoMAngVel = new double3(
+                R_com_diff.c1.z - R_com_diff.c2.y,
+                R_com_diff.c2.x - R_com_diff.c0.z,
+                R_com_diff.c0.y - R_com_diff.c1.x
             ) / (2.0 * dt);
 
-            LinearVelocity = (alpha * rawLinVel) + ((1.0 - alpha) * LinearVelocity);
-            AngularVelocity = (alpha * rawAngVel) + ((1.0 - alpha) * AngularVelocity);
+            CoMLinearVelocity = (alpha * rawCoMLinVel) + ((1.0 - alpha) * CoMLinearVelocity);
+            CoMAngularVelocity = (alpha * rawCoMAngVel) + ((1.0 - alpha) * CoMAngularVelocity);
+
+            // --- End Effector Velocities ---
+            double3 rawEELinVel = (eePosition - eePositionPrev) / dt;
+            
+            double3x3 R_ee_diff = math.mul(R_ee, math.transpose(R_eePrev));
+            double3 rawEEAngVel = new double3(
+                R_ee_diff.c1.z - R_ee_diff.c2.y,
+                R_ee_diff.c2.x - R_ee_diff.c0.z,
+                R_ee_diff.c0.y - R_ee_diff.c1.x
+            ) / (2.0 * dt);
+
+            EELinearVelocity = (alpha * rawEELinVel) + ((1.0 - alpha) * EELinearVelocity);
+            EEAngularVelocity = (alpha * rawEEAngVel) + ((1.0 - alpha) * EEAngularVelocity);
+
+            // --- Force Plates ---
             FilteredGRF = (alpha * rawForceData.Force) + ((1.0 - alpha) * FilteredGRF);
             FilteredCoP = (alpha * rawForceData.CenterOfPressure) + ((1.0 - alpha) * FilteredCoP);
 
+            // Update Previous States
             comPositionPrev = comPosition;
             R_comPrev = R_com;
+            eePositionPrev = eePosition;
+            R_eePrev = R_ee;
         }
     }
     
