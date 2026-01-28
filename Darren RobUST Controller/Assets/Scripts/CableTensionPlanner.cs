@@ -156,13 +156,6 @@ public class CableTensionPlanner
         return tensions;
     }
 
-    /// <summary>
-    /// Returns pulley positions for visualizer (Vector3 array, pre-allocated in description).
-    /// </summary>
-    public ReadOnlySpan<Vector3> GetPulleyPositionsInRobotFrame()
-    {
-        return new ReadOnlySpan<Vector3>(robot.FramePulleyPositionsVec3);
-    }
 
     // ============ Unity.Mathematics Helpers (SIMD) ============
 
