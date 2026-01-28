@@ -8,14 +8,17 @@ public class RobotVisualizer : MonoBehaviour
     public bool isActive = true;
 
     [Header("Body Geometry (Ellipsoid)")]
-    public Vector3 ellipsoidRadii = new Vector3(0.1f, 0.1f, 0.1f);
+    public Vector3 ellipsoidRadii = new Vector3(0.2f, 0.5f, 0.1f);
 
     [Header("Force Capsule Settings")]
     [Tooltip("Meters per Newton for capsule length.")]
-    public float metersPerNewton = 0.0025f;
+    public float metersPerNewton = 0.005f;
 
     [Tooltip("Capsule radius (meters).")]
     public float capsuleRadius = 0.01f;
+
+    public Vector3[] pulleyPositionsWorld;
+    public float pulleySphereSize = 0.05f;
 
     // Scene graph
     private Transform bodyRoot;
@@ -42,10 +45,16 @@ public class RobotVisualizer : MonoBehaviour
 
     // ============ Public API ============
 
-    public bool Initialize(in double3 beltOffsetBodyFrame, in double3 bodyInertia)
+    public bool Initialize(in double3 beltOffsetBodyFrame, in double3 bodyInertia, in ReadOnlySpan<Vector3> pulleyPositionsRobotFrame)
     {
-        beltOffsetBody = beltOffsetBodyFrame;
+        beltOffsetBody = TransformDouble3(beltOffsetBodyFrame);
         ellipsoidRadii = new Vector3((float)bodyInertia.x, (float)bodyInertia.y, (float)bodyInertia.z);
+        
+        pulleyPositionsWorld = new Vector3[pulleyPositionsRobotFrame.Length];
+        for (int i = 0; i < pulleyPositionsWorld.Length; i++)
+        {
+            pulleyPositionsWorld[i] = TransformVector3(pulleyPositionsRobotFrame[i]);            
+        }
 
         BuildSceneGraph();
     
@@ -62,18 +71,18 @@ public class RobotVisualizer : MonoBehaviour
     {
         lock (dataLock)
         {
-            cachedComWorld = comWorld;
-            cachedTrunkOrientationWorld = trunkOrientationWorld;
+            cachedComWorld = TransformDouble3(comWorld);
+            cachedTrunkOrientationWorld = TransformQuaternion(trunkOrientationWorld);
 
-            cachedBeltForceWorld = beltForceWorld;
+            cachedBeltForceWorld = TransformDouble3(beltForceWorld);
             
-            cachedCop0World = cop0World;
-            cachedGrf0World = grf0World;
+            cachedCop0World = TransformDouble3(cop0World);
+            cachedGrf0World = TransformDouble3(grf0World);
 
-            cachedCop1World = cop1World;
-            cachedGrf1World = grf1World;
+            cachedCop1World = TransformDouble3(cop1World);
+            cachedGrf1World = TransformDouble3(grf1World);
 
-            cachedTotalForceWorld = beltForceWorld + grf0World + grf1World;
+            cachedTotalForceWorld = cachedBeltForceWorld + cachedGrf0World + cachedGrf1World;
 
             hasNewData = true;
         }
@@ -158,6 +167,18 @@ public class RobotVisualizer : MonoBehaviour
         totalForceCapsuleTf = CreateForceCapsule("TotalForce_Capsule", rootGO.transform).transform;
         grf0CapsuleTf = CreateForceCapsule("GRF0_Capsule", rootGO.transform).transform;
         grf1CapsuleTf = CreateForceCapsule("GRF1_Capsule", rootGO.transform).transform;
+
+        for (int i = 0; i < pulleyPositionsWorld.Length; i++)
+        {
+            var sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            sphere.name = $"Pulley_{i + 1}";
+            sphere.transform.SetParent(rootGO.transform, false);
+            sphere.transform.localScale = Vector3.one * pulleySphereSize;
+            sphere.transform.position = pulleyPositionsWorld[i];
+            DestroyColliderIfExists(sphere);
+            Renderer r = sphere.GetComponent<Renderer>();
+            r.material.color = Color.red;
+        }
     }
 
     // ============ Capsule Force Rendering ============
@@ -227,4 +248,71 @@ public class RobotVisualizer : MonoBehaviour
 
     private static Quaternion ToUnityQuaternion(in quaternion q)
         => new Quaternion(q.value.x, q.value.y, q.value.z, q.value.w);
+
+
+    private static readonly float3x3 A_Robot_to_Unity = new float3x3(
+        new float3(1, 0, 0), // column 0
+        new float3(0, 0, 1), // column 1
+        new float3(0, 1, 0)  // column 2
+    );
+
+    // ============================================================================
+    // Robot (RH, OpenVR) → Unity (LH) Coordinate Mapping
+    //
+    // All raw inputs to this visualizer (positions, forces, orientations) are
+    // expressed in the robot/OpenVR coordinate system:
+    //
+    //   Robot frame (Right-Handed):
+    //     X = right
+    //     Y = forward
+    //     Z = up
+    //
+    //   Unity frame (Left-Handed):
+    //     X = right
+    //     Y = up
+    //     Z = forward
+    //
+    // To render robot data correctly in Unity, we apply a single, explicit linear
+    // axis mapping at the boundaries (Initialize + PushState), and keep all internal
+    // visualization logic strictly in Unity coordinates.
+    //
+    // The mapping is a Y↔Z axis swap:
+    //
+    //     (x, y, z)_robot  →  (x, z, y)_unity
+    //
+    // Transform conventions used below:
+    //
+    //   • double3 (positions, CoM, CoPs, forces, offsets):
+    //       p_unity = A · p_robot
+    //
+    //   • Vector3 (pulley locations):
+    //       v_unity = A · v_robot
+    //
+    //   • Orientations (quaternions):
+    //       convert to SO3 rotation matrix
+    //       R_unity = A · R_robot · Aᵀ
+    //       convert back to quarternion
+    //
+    // ============================================================================
+
+    private static quaternion TransformQuaternion(in quaternion qR)
+    {
+        // R_u = A R_r A^T
+        float3x3 Rr = new float3x3(qR);
+        float3x3 Ru = math.mul(math.mul(A_Robot_to_Unity, Rr), math.transpose(A_Robot_to_Unity));
+        return new quaternion(Ru);
+    }
+
+    private static double3 TransformDouble3(in double3 dR)
+    {
+        // (x, y, z)_robot -> (x, z, y)_unity
+        return new double3(dR.x, dR.z, dR.y);
+    }
+
+    private static Vector3 TransformVector3(in Vector3 vR)
+    {
+        // (x, y, z)_robot -> (x, z, y)_unity
+        return new Vector3(vR.x, vR.z, vR.y);
+    }
+
 }
