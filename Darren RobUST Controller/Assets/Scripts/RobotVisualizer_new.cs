@@ -73,19 +73,14 @@ public class RobotVisualizer : MonoBehaviour
         {
             cachedComWorld = TransformDouble3(comWorld);
             cachedTrunkOrientationWorld = TransformQuaternion(trunkOrientationWorld);
-
             cachedBeltForceWorld = TransformDouble3(beltForceWorld);
-            
             cachedCop0World = TransformDouble3(cop0World);
             cachedGrf0World = TransformDouble3(grf0World);
-
             cachedCop1World = TransformDouble3(cop1World);
             cachedGrf1World = TransformDouble3(grf1World);
-
             cachedTotalForceWorld = cachedBeltForceWorld + cachedGrf0World + cachedGrf1World;
-
-            hasNewData = true;
         }
+        hasNewData = true;
     }
 
     private void Update()
@@ -96,23 +91,18 @@ public class RobotVisualizer : MonoBehaviour
         quaternion trunkOrientationWorld;
         double3 beltForceWorld, totalForceWorld;
         double3 cop0World, grf0World, cop1World, grf1World;
+        if (!hasNewData) return;
 
         lock (dataLock)
         {
-            if (!hasNewData) return;
-
             comWorld = cachedComWorld;
             trunkOrientationWorld = cachedTrunkOrientationWorld;
-
             beltForceWorld = cachedBeltForceWorld;
             totalForceWorld = cachedTotalForceWorld;
-
             cop0World = cachedCop0World;
             grf0World = cachedGrf0World;
-
             cop1World = cachedCop1World;
             grf1World = cachedGrf1World;
-
             hasNewData = false;
         }
 
@@ -136,7 +126,6 @@ public class RobotVisualizer : MonoBehaviour
     }
 
     // ============ Scene Graph ============
-
     private void BuildSceneGraph()
     {
         var rootGO = new GameObject("RobUST_VisualizationRoot");

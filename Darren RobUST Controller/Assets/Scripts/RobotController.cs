@@ -209,17 +209,11 @@ public class RobotController : MonoBehaviour
                         double3.zero, // Zero orientation
                         double3.zero, 
                         double3.zero
-                    );
+                    ); // need to calculate target based on some logic
 
-                    impedanceController.UpdateState(
-                        eePose_RF, 
-                        filter_10Hz.EELinearVelocity, 
-                        filter_10Hz.EEAngularVelocity, 
-                        target
-                    );
-
-                    Wrench impWrench = impedanceController.computeNextControl();
-                    solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, impWrench);
+                    impedanceController.UpdateState(eePose_RF, filter_10Hz.EELinearVelocity, filter_10Hz.EEAngularVelocity, target);
+                    Wrench goalWrench = impedanceController.computeNextControl();
+                    solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, goalWrench);
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
                     break;
             }
