@@ -32,6 +32,7 @@ public class RobotVisualizer : MonoBehaviour
 
     // Pulley spheres: simple, init-only visualization
     private float pulleySphereSize = 0.2f;
+    private RobUSTDescription robot;
 
     // Thread-safe cached tracker data (written from control thread, read in Update)
     private readonly object dataLock = new object();
@@ -56,8 +57,10 @@ public class RobotVisualizer : MonoBehaviour
     /// </summary>
     /// <param name="framePoseMatrix">Static frame pose in robot (RH) coordinates.</param>
     /// <param name="pulleyPositionsRobotFrame">Pulley points relative to the frame tracker, in RH robot frame.</param>
-    public bool Initialize(Matrix4x4 framePoseMatrix, ReadOnlySpan<Vector3> pulleyPositionsRobotFrame)
+    public bool Initialize(Matrix4x4 framePoseMatrix, RobUSTDescription robotDescription)
     {
+        robot = robotDescription;
+
         // Validate required references
         bool ok = true;
         if (comTrackerVisual == null) { Debug.LogError("RobotVisualizer: comTrackerVisual not assigned", this); ok = false; }
@@ -75,10 +78,16 @@ public class RobotVisualizer : MonoBehaviour
         UpdateVisualizationCamera();
 
         // Create pulley spheres once at startup using Unity primitives
-        for (int i = 0; i < pulleyPositionsRobotFrame.Length; i++)
+        for (int i = 0; i < robot.FramePulleyPositions.Length; i++)
         {
+            Vector3 pulleyPosLocal = new Vector3(
+                (float)robot.FramePulleyPositions[i].x,
+                (float)robot.FramePulleyPositions[i].y,
+                (float)robot.FramePulleyPositions[i].z
+            );
+
             // Compute world position in RH frame: frame * local
-            Vector3 worldRH = framePoseMatrix.MultiplyPoint3x4(pulleyPositionsRobotFrame[i]);
+            Vector3 worldRH = framePoseMatrix.MultiplyPoint3x4(pulleyPosLocal);
             // Use ApplyVisual to convert RH->LH by constructing a pose with translation only
             Matrix4x4 pulleyPose = Matrix4x4.TRS(worldRH, Quaternion.identity, Vector3.one);
 

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 using Unity.Mathematics;
 using Unity.Profiling;
 
@@ -127,8 +128,7 @@ public class RobotController : MonoBehaviour
         trackerManager.GetFrameTrackerData(out robot_frame_tracker);
 
         // Initialize visualizer now that frame pose is available
-        ReadOnlySpan<Vector3> pulleyPositions = robotDescription.FramePulleyPositionsVec3;
-        if (!visualizer.Initialize(robot_frame_tracker.PoseMatrix, pulleyPositions))
+        if (!visualizer.Initialize(robot_frame_tracker.PoseMatrix, robotDescription))
         {
             Debug.LogError("Failed to initialize RobotVisualizer.", this);
             enabled = false;
@@ -159,10 +159,13 @@ public class RobotController : MonoBehaviour
 
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.O)) { currentControlMode = CONTROL_MODE.OFF; trajectoryIndex = 0; }
-        if (Input.GetKeyDown(KeyCode.T)) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
-        if (Input.GetKeyDown(KeyCode.M)) { currentControlMode = CONTROL_MODE.MPC; }
-        if (Input.GetKeyDown(KeyCode.I)) { currentControlMode = CONTROL_MODE.IMPEDANCE; }        
+        // Ensure keyboard is connected before checking
+        if (Keyboard.current == null) return;
+
+        if (Keyboard.current.oKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.OFF; trajectoryIndex = 0; }
+        if (Keyboard.current.tKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
+        if (Keyboard.current.mKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.MPC; }
+        if (Keyboard.current.iKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.IMPEDANCE; }        
     }
 
     /// <summary>
@@ -200,6 +203,7 @@ public class RobotController : MonoBehaviour
             double4x4 comPose_RF = math.mul(frameInv, ToDouble4x4(rawComData.PoseMatrix));
             
             filter_10Hz.Update(comPose_RF, eePose_RF, netFPData);
+            Debug.Log($"FP0: Force={filter_10Hz.FilteredGRF}, CoP={filter_10Hz.FilteredCoP}");
 
             switch (currentControlMode)
             {
