@@ -97,9 +97,6 @@ public sealed class RobUSTDescription
     /// <summary>Pulley positions in robot frame [m] (double3 for SIMD)</summary>
     public readonly double3[] FramePulleyPositions;
     
-    /// <summary>Pulley positions in robot frame [m] (Vector3 for Unity visualization)</summary>
-    public readonly Vector3[] FramePulleyPositionsVec3;
-    
     /// <summary>Cable attachment points on belt, in end-effector frame [m]</summary>
     public readonly double3[] LocalAttachmentPoints;
     
@@ -153,7 +150,6 @@ public sealed class RobUSTDescription
         UserHeight = userHeight;
         
         FramePulleyPositions = new double3[numCables];
-        FramePulleyPositionsVec3 = new Vector3[numCables];
         LocalAttachmentPoints = new double3[numCables];
         SolverToMotorMap = new int[numCables];
 
@@ -173,11 +169,6 @@ public sealed class RobUSTDescription
             int srcIdx = activeIndices[i];
             
             FramePulleyPositions[i] = AllPulleyPositions[srcIdx];
-            FramePulleyPositionsVec3[i] = new Vector3(
-                (float)FramePulleyPositions[i].x,
-                (float)FramePulleyPositions[i].y,
-                (float)FramePulleyPositions[i].z);
-
             SolverToMotorMap[i] = FullMotorMapping[srcIdx];
             
             if (srcIdx == 0 || srcIdx == 4) LocalAttachmentPoints[i] = new double3(-halfML, -chestAP, 0);
