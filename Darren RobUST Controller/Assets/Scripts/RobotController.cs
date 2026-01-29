@@ -207,8 +207,8 @@ public class RobotController : MonoBehaviour
                     motor_tension_command.Clear();
                     break;
                 case CONTROL_MODE.TRANSPARENT:
-                    Wrench goalWrench; // zero wrench
-                    solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, goalWrench);
+                    Wrench zeroWrench = new Wrench(double3.zero, double3.zero);
+                    solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, zeroWrench);
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
                     trajectoryIndex++;
                     break;
