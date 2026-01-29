@@ -68,6 +68,12 @@ public struct Wrench
 {
     public double3 Force;
     public double3 Torque;
+
+    public Wrench(double3 force, double3 torque)
+    {
+        Force = force;
+        Torque = torque;
+    }
 }
 
 /// <summary>

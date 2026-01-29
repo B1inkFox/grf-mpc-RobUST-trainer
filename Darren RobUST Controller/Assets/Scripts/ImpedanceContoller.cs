@@ -1,6 +1,5 @@
 using UnityEngine;
 using Unity.Mathematics;
-using static Unity.Mathematics.math;
 
 /// <summary>
 /// A Cartesian Impedance Controller that outputs a desired Wrench (Force + Torque).
@@ -69,31 +68,29 @@ public class ImpedanceController : BaseController<Wrench>
         // ------------------------------------------------
         // Construct Target Quaternion from Euler ZYX ( Matches MPCSolver convention )
         // R = Rz(psi) * Ry(theta) * Rx(phi)
-        quaternion q_z = quaternion.AxisAngle(new double3(0, 0, 1), targetState.th.z);
-        quaternion q_y = quaternion.AxisAngle(new double3(0, 1, 0), targetState.th.y);
-        quaternion q_x = quaternion.AxisAngle(new double3(1, 0, 0), targetState.th.x);
-        quaternion q_des = mul(q_z, mul(q_y, q_x));
+        quaternion q_z = quaternion.AxisAngle((float3)new double3(0, 0, 1), (float)targetState.th.z);
+        quaternion q_y = quaternion.AxisAngle((float3)new double3(0, 1, 0), (float)targetState.th.y);
+        quaternion q_x = quaternion.AxisAngle((float3)new double3(1, 0, 0), (float)targetState.th.x);
+        quaternion q_des = math.mul(q_z, math.mul(q_y, q_x));
 
         // Get Current Quaternion
-        quaternion q_curr = new quaternion(new double3x3(currentPose.c0.xyz, currentPose.c1.xyz, currentPose.c2.xyz));
+        quaternion q_curr = new quaternion(new float3x3((float3)currentPose.c0.xyz, (float3)currentPose.c1.xyz, (float3)currentPose.c2.xyz));
 
         // Orientation Delta: q_diff = q_des * q_curr_inverse
         // This gives the rotation needed to go FROM current TO desired in global frame
-        quaternion q_diff = mul(q_des, inverse(q_curr));
+        quaternion q_diff = math.mul(q_des, math.inverse(q_curr));
 
         // Convert to Rotation Vector (Axis * Angle)
         double3 e_o = double3.zero;
-        if (abs(q_diff.value.w) < 0.999999)
+        if (math.abs(q_diff.value.w) < 0.999999)
         {
             // Extract angle: 2 * acos(w)
             // Extract axis: xyz / sin(theta/2)
-            double theta = 2.0 * acos(clamp(q_diff.value.w, -1.0, 1.0));
-            double sin_half_theta = sqrt(1.0 - q_diff.value.w * q_diff.value.w);
+            double theta = 2.0 * math.acos(math.clamp(q_diff.value.w, -1.0, 1.0));
+            double sin_half_theta = math.sqrt(1.0 - q_diff.value.w * q_diff.value.w);
             
             if (sin_half_theta > 0.001)
-            {
-                e_o = (q_diff.value.xyz / sin_half_theta) * theta;
-            }
+                e_o = ((double3)q_diff.value.xyz / sin_half_theta) * theta;
         }
 
         double3 e_w = targetState.w - currentAngVel;
@@ -102,8 +99,8 @@ public class ImpedanceController : BaseController<Wrench>
 
         // 3. Safety Clamping
         // ------------------
-        if (length(ForceCmd) > MaxForce) ForceCmd = normalize(ForceCmd) * MaxForce;
-        if (length(TorqueCmd) > MaxTorque) TorqueCmd = normalize(TorqueCmd) * MaxTorque;
+        if (math.length(ForceCmd) > MaxForce) ForceCmd = math.normalize(ForceCmd) * MaxForce;
+        if (math.length(TorqueCmd) > MaxTorque) TorqueCmd = math.normalize(TorqueCmd) * MaxTorque;
 
         return new Wrench(ForceCmd, TorqueCmd);
     }
