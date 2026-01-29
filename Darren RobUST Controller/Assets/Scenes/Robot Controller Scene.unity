@@ -325,7 +325,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   comTrackerSerial: LHR-2D89AB0C
-  endEffectorSerial: LHR-7F9F2362
+  endEffectorSerial: LHR-7979CFC9
   frameTrackerSerial: LHR-974C0DAB
 --- !u!114 &748268986
 MonoBehaviour:
@@ -343,10 +343,14 @@ MonoBehaviour:
   forcePlateManager: {fileID: 748268990}
   tcpCommunicator: {fileID: 748268983}
   visualizer: {fileID: 748268989}
-  isLabviewControlEnabled: 1
+  isLabviewControlEnabled: 0
+  currentControlMode: 0
   numCables: 8
   chestAPDistance: 0.15
   chestMLDistance: 0.3
+  userMass: 70
+  userShoulderWidth: 0.4
+  userHeight: 0.5
 --- !u!4 &748268987
 Transform:
   m_ObjectHideFlags: 0
