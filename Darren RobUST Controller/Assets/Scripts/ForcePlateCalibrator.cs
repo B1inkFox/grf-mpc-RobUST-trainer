@@ -4,8 +4,7 @@ using Unity.Mathematics;
 using System.Security.Cryptography.X509Certificates;
 
 /// <summary>
-/// Calibrates a rectangular plate's local frame O1 to global frame O0 via
-/// rigid Procrustes (Davenport's q-method).
+/// Calibrates a rectangular plate's local frame O1 to global frame O0
 ///
 /// Uses Unity.Mathematics for all non-visualization math:
 /// - Rotation stored as double3x3
@@ -26,6 +25,12 @@ public sealed class ForcePlateCalibrator
 
     /// <summary>Translation of O1 origin in O0</summary>
     public readonly double3 t_O0;
+
+    /// <summary>
+    /// The force plate reads out TOTAL FORCE EXERTED, which is negative GRF.
+    /// toggling invert_force_output = true makes sure the output of forcePlateManager() is GRF.
+    /// </summary>
+    public const bool invert_force_output = true;
 
     /// <summary>Scale factor for points (mm -> m)</summary>
     private const double mmToM = 0.001;
@@ -86,7 +91,16 @@ public sealed class ForcePlateCalibrator
     /// </summary>
     public void ProjectForce(in double3 fO1, out double3 fO0)
     {
-        fO0 = math.mul(R_only, fO1);
+        temp = math.mul(R_only, fO1);
+
+        if (invert_force_output)
+        {
+            fO0 = -temp;
+        } 
+        else
+        {
+            fO0 = temp;
+        }    
     }
 
     /// <summary>
