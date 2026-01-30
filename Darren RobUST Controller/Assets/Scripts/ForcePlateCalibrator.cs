@@ -1,7 +1,6 @@
 // ForcePlateCalibrator.cs
 using UnityEngine;                 // Only for Vector3 overload compatibility + Debug if needed
 using Unity.Mathematics;
-using System.Security.Cryptography.X509Certificates;
 
 /// <summary>
 /// Calibrates a rectangular plate's local frame O1 to global frame O0
