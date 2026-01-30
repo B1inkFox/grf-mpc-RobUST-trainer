@@ -51,8 +51,8 @@ public class RobotController : MonoBehaviour
     public float userMass = 70.0f;
     [Tooltip("User shoulder width [m].")]
     public float userShoulderWidth = 0.4f;
-    [Tooltip("User trunk height (hip to shoulder) [m].")]
-    public float userHeight = 0.5f;
+    [Tooltip("User height (feet to head) [m].")]
+    public float userHeight = 1.5f;
 
     private RobUSTDescription robotDescription;
     private MPCSolver controller;
@@ -98,8 +98,8 @@ public class RobotController : MonoBehaviour
         Xref_global = new RBState[2000]; // 20 seconds buffer
         // Hand-coded static point (Robot Frame: x=0, y=0, z~height)
         RBState staticPoint = new RBState(
-            new double3(0, 0.8, userHeight * 0.67), 
-            new double3(0, 0, -math.PI/2), 
+            new double3(0, 0.75, 0), 
+            new double3(0, 0, math.PI/2), 
             new double3(0, 0, 0), 
             new double3(0, 0, 0)
         );
@@ -142,7 +142,7 @@ public class RobotController : MonoBehaviour
         }
 
         // Initialize Controller Here
-        controller = new MPCSolver(robotDescription, 0.01, 50);
+        controller = new MPCSolver(robotDescription, 0.05, 10);
         impedanceController = new ImpedanceController();
         tensionPlanner = new CableTensionPlanner(robotDescription);
 
@@ -165,7 +165,7 @@ public class RobotController : MonoBehaviour
         if (Keyboard.current.oKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.OFF; trajectoryIndex = 0; }
         if (Keyboard.current.tKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
         if (Keyboard.current.mKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.MPC; }
-        if (Keyboard.current.iKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.IMPEDANCE; }        
+        if (Keyboard.current.iKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.IMPEDANCE; }
     }
 
     /// <summary>
@@ -203,7 +203,6 @@ public class RobotController : MonoBehaviour
             double4x4 comPose_RF = math.mul(frameInv, ToDouble4x4(rawComData.PoseMatrix));
             
             filter_10Hz.Update(comPose_RF, eePose_RF, netFPData);
-            Debug.Log($"FP0: Force={filter_10Hz.FilteredGRF}, CoP={filter_10Hz.FilteredCoP}");
 
             switch (currentControlMode)
             {
@@ -230,6 +229,7 @@ public class RobotController : MonoBehaviour
 
                     impedanceController.UpdateState(eePose_RF, filter_10Hz.EELinearVelocity, filter_10Hz.EEAngularVelocity, target);
                     Wrench goalWrench = impedanceController.computeNextControl();
+                    Debug.Log($"Impedance Control Wrench: F=({goalWrench.Force}), T=({goalWrench.Torque})");
                     solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, goalWrench);
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
                     trajectoryIndex++;
