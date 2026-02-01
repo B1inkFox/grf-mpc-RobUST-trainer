@@ -117,7 +117,7 @@ public class MPCSolver : BaseController<double[]>
     {
         // Store force plate data (already in robot frame)
         netGRF = netFPData.Force;
-        netCoP = netFPData.CenterOfPressure;
+        netCoP = netFPData.CoP;
 
         endEffectorPose = eePose_RF;
         comPose = comPose_RF;
