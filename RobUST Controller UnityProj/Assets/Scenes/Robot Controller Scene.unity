@@ -324,9 +324,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9f616882f0f732a32be958a422cfab9c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  comTrackerSerial: LHR-7979CFC9
-  endEffectorSerial: LHR-91CE1F30
-  frameTrackerSerial: LHR-974C0DAB
+  comTrackerSerial: LHR-69F82D01
+  endEffectorSerial: LHR-9C268EA5
+  frameTrackerSerial: LHR-68C045A4
 --- !u!114 &748268986
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -343,7 +343,7 @@ MonoBehaviour:
   forcePlateManager: {fileID: 748268990}
   tcpCommunicator: {fileID: 748268983}
   visualizer: {fileID: 748268989}
-  isLabviewControlEnabled: 1
+  isLabviewControlEnabled: 0
   currentControlMode: 0
   numCables: 8
   chestAPDistance: 0.15
@@ -382,8 +382,10 @@ MonoBehaviour:
   comTrackerVisual: {fileID: 93659637}
   endEffectorVisual: {fileID: 292712651}
   frameTrackerVisual: {fileID: 717259972}
+  metersPerNewton: 0.005
+  forceCapsuleRadius: 0.01
   visualizationCamera: {fileID: 1682237651}
-  cam_pos_robotFrame: {x: 10, y: 10, z: 5}
+  camPos_RobotFrame: {x: 3, y: 1.2, z: 1}
 --- !u!114 &748268990
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -664,6 +666,6 @@ SceneRoots:
   m_Roots:
   - {fileID: 748268987}
   - {fileID: 1682237652}
+  - {fileID: 93659637}
   - {fileID: 292712651}
   - {fileID: 717259972}
-  - {fileID: 93659637}

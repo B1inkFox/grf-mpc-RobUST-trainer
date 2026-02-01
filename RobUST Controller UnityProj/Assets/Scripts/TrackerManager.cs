@@ -237,6 +237,7 @@ public class TrackerManager : MonoBehaviour
         targetMatrix.m10 = -openVRMatrix.m4;  targetMatrix.m11 = -openVRMatrix.m6;  targetMatrix.m12 = -openVRMatrix.m5;  targetMatrix.m13 = openVRMatrix.m7;
         // Row 2
         targetMatrix.m20 = -openVRMatrix.m8;  targetMatrix.m21 = -openVRMatrix.m10;  targetMatrix.m22 = -openVRMatrix.m9; targetMatrix.m23 = openVRMatrix.m11;
+        targetMatrix.m33 = 1f; // enforce homogeneous row
     }
 
     private void OnDestroy()

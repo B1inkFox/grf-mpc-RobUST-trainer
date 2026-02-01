@@ -19,10 +19,8 @@ public class RobotController : MonoBehaviour
     [Header("Module References")]
     [Tooltip("The TrackerManager instance that provides tracker data.")]
     public TrackerManager trackerManager;
-
     [Tooltip("The ForcePlateManager instance for reading force plate data.")]
     public ForcePlateManager forcePlateManager;
-
     [Tooltip("The LabviewTcpCommunicator instance for sending motor commands.")]
     public LabviewTcpCommunicator tcpCommunicator;
 
@@ -33,6 +31,7 @@ public class RobotController : MonoBehaviour
     [Header("Control Settings")]
     [Tooltip("Enable or disable sending commands to LabVIEW.")]
     public bool isLabviewControlEnabled = true;
+    private bool isForcePlateEnabled = true;
 
     public enum CONTROL_MODE { OFF, TRANSPARENT, MPC, IMPEDANCE }
     public volatile CONTROL_MODE currentControlMode = CONTROL_MODE.OFF;
@@ -40,13 +39,10 @@ public class RobotController : MonoBehaviour
     [Header("Robot Geometry Configuration")]
     [Tooltip("Number of cables in the system.")]
     public int numCables = 8;
-
     [Tooltip("Measured thickness of the chest in the anterior-posterior direction [m].")]
     public float chestAPDistance = 0.2f;
-
     [Tooltip("Measured width of the chest in the medial-lateral direction [m].")]
     public float chestMLDistance = 0.3f;
-
     [Tooltip("User body mass [kg].")]
     public float userMass = 70.0f;
     [Tooltip("User shoulder width [m].")]
@@ -96,7 +92,7 @@ public class RobotController : MonoBehaviour
 
         // Initialize Global Reference Trajectory
         Xref_global = new RBState[2000]; // 20 seconds buffer
-        // Hand-coded static point (Robot Frame: x=0, y=0, z~height)
+        // stable standing
         RBState staticPoint = new RBState(
             new double3(0, 0.75, 0), 
             new double3(0, 0, math.PI/2), 
@@ -105,6 +101,8 @@ public class RobotController : MonoBehaviour
         );
         for (int i = 0; i < Xref_global.Length; i++) Xref_global[i] = staticPoint;
 
+        // Initialize Modules
+        tcpCommunicator.Initialize();
         if (!trackerManager.Initialize())
         {
             Debug.LogError("Failed to initialize TrackerManager.", this);
@@ -113,22 +111,12 @@ public class RobotController : MonoBehaviour
         }
         if (!forcePlateManager.Initialize())
         {
-            Debug.LogError("Failed to initialize ForcePlateManager.", this);
-            // dont disable program if no force plates
+            Debug.LogWarning("Failed to initialize ForcePlateManager.", this);
+            isForcePlateEnabled = false;
         }
-        if (!tcpCommunicator.Initialize())
-        {
-            Debug.LogError("Failed to initialize LabviewTcpCommunicator.", this);
-            enabled = false;
-            return;
-        }
-
-        // Capture static frame reference to prevent drift during operation
-        Thread.Sleep(100); // Brief pause for tracking stability
-        trackerManager.GetFrameTrackerData(out robot_frame_tracker);
-
-        // Initialize visualizer now that frame pose is available
-        if (!visualizer.Initialize(robot_frame_tracker.PoseMatrix, robotDescription))
+        
+        trackerManager.GetFrameTrackerData(out robot_frame_tracker); // IMPORTANT snapshot frame tracker
+        if (!visualizer.Initialize(robotDescription))
         {
             Debug.LogError("Failed to initialize RobotVisualizer.", this);
             enabled = false;
@@ -141,11 +129,10 @@ public class RobotController : MonoBehaviour
             tcpCommunicator.SetClosedLoopControl();
         }
 
-        // Initialize Controller Here
+        // Finally Initialize Controllers and begin control thread
         controller = new MPCSolver(robotDescription, 0.05, 10);
         impedanceController = new ImpedanceController();
         tensionPlanner = new CableTensionPlanner(robotDescription);
-
         controllerThread = new Thread(controlLoop)
         {
             Name = "Robot Controller Main",
@@ -159,12 +146,11 @@ public class RobotController : MonoBehaviour
 
     private void Update()
     {
-        // Ensure keyboard is connected before checking
         if (Keyboard.current == null) return;
 
         if (Keyboard.current.oKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.OFF; trajectoryIndex = 0; }
         if (Keyboard.current.tKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
-        if (Keyboard.current.mKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.MPC; }
+        if (Keyboard.current.mKey.wasPressedThisFrame) { if (isForcePlateEnabled) currentControlMode = CONTROL_MODE.MPC; }
         if (Keyboard.current.iKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.IMPEDANCE; }
     }
 
@@ -197,10 +183,16 @@ public class RobotController : MonoBehaviour
 
             trackerManager.GetEndEffectorTrackerData(out TrackerData rawEndEffectorData);
             trackerManager.GetCoMTrackerData(out TrackerData rawComData);
-            forcePlateManager.GetNetForcePlateData(out ForcePlateData netFPData);
-            
             double4x4 eePose_RF = math.mul(frameInv, ToDouble4x4(rawEndEffectorData.PoseMatrix));
             double4x4 comPose_RF = math.mul(frameInv, ToDouble4x4(rawComData.PoseMatrix));
+
+            forcePlateManager.GetForcePlateData(0, out ForcePlateData fp0);
+            forcePlateManager.GetForcePlateData(1, out ForcePlateData fp1);
+            double3 netForce = fp0.Force + fp1.Force;
+            double3 netCoP = double3.zero;
+            if (math.abs(netForce.z) > 1e-3) // Handle division by zero
+                netCoP = (fp0.CoP * fp0.Force.z + fp1.CoP * fp1.Force.z) / netForce.z;
+            ForcePlateData netFPData = new ForcePlateData(netForce, netCoP);
             
             filter_10Hz.Update(comPose_RF, eePose_RF, netFPData);
 
@@ -237,8 +229,7 @@ public class RobotController : MonoBehaviour
             }
 
             tcpCommunicator.UpdateTensionSetpoint(motor_tension_command);
-
-            visualizer.SetTrackerData(rawComData, rawEndEffectorData, robot_frame_tracker);
+            visualizer.PushState(comPose_RF, eePose_RF, fp0.CoP, fp0.Force, fp1.CoP, fp1.Force);
 
             s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
             while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime) { } // BURN wait
@@ -403,7 +394,7 @@ public class RobotController : MonoBehaviour
                 R_eePrev = R_ee;
 
                 FilteredGRF = rawForceData.Force;
-                FilteredCoP = rawForceData.CenterOfPressure;
+                FilteredCoP = rawForceData.CoP;
                 isFirstUpdate = false;
                 return;
             }
@@ -437,7 +428,7 @@ public class RobotController : MonoBehaviour
 
             // --- Force Plates ---
             FilteredGRF = (alpha * rawForceData.Force) + ((1.0 - alpha) * FilteredGRF);
-            FilteredCoP = (alpha * rawForceData.CenterOfPressure) + ((1.0 - alpha) * FilteredCoP);
+            FilteredCoP = (alpha * rawForceData.CoP) + ((1.0 - alpha) * FilteredCoP);
 
             // Update Previous States
             comPositionPrev = comPosition;

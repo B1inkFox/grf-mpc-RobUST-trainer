@@ -49,11 +49,7 @@ public class ForcePlateManager : MonoBehaviour
         calib = new ForcePlateCalibrator();
         
         // Initialize the Vicon SDK
-        if (!InitializeViconSDK())
-        {
-            Debug.LogError("Failed to initialize Vicon force plate connection.");
-            return false;
-        }
+        if (!InitializeViconSDK()) return false;
 
         // Start the sampling thread
         isRunning = true;
@@ -184,7 +180,7 @@ public class ForcePlateManager : MonoBehaviour
 
             // Weight CoP by vertical force (Z-axis)
             double fz = math.abs(plate.Force.z);
-            weightedCoPSum += plate.CenterOfPressure * fz;
+            weightedCoPSum += plate.CoP * fz;
             totalVerticalForce += fz;
         }
 

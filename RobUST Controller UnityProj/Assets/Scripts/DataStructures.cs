@@ -33,12 +33,12 @@ public struct TrackerData
 public struct ForcePlateData
 {
     public double3 Force;
-    public double3 CenterOfPressure;
+    public double3 CoP;
 
-    public ForcePlateData(double3 force, double3 centerOfPressure)
+    public ForcePlateData(double3 force, double3 cop)
     {
         Force = force;
-        CenterOfPressure = centerOfPressure;
+        CoP = cop;
     }
 }
 
