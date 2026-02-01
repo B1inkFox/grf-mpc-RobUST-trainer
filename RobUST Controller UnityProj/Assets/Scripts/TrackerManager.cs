@@ -167,17 +167,11 @@ public class TrackerManager : MonoBehaviour
             lock (dataLock)
             {
                 if (comTrackerIndex != OpenVR.k_unTrackedDeviceIndexInvalid && trackedDevicePoses[comTrackerIndex].bPoseIsValid)
-                {
                     UpdateMatrixFromOpenVR(trackedDevicePoses[comTrackerIndex].mDeviceToAbsoluteTracking, ref comTrackerData.PoseMatrix);
-                }
                 if (endEffectorIndex != OpenVR.k_unTrackedDeviceIndexInvalid && trackedDevicePoses[endEffectorIndex].bPoseIsValid)
-                {
                     UpdateMatrixFromOpenVR(trackedDevicePoses[endEffectorIndex].mDeviceToAbsoluteTracking, ref endEffectorData.PoseMatrix);
-                }
                 if (frameTrackerIndex != OpenVR.k_unTrackedDeviceIndexInvalid && trackedDevicePoses[frameTrackerIndex].bPoseIsValid)
-                {
                     UpdateMatrixFromOpenVR(trackedDevicePoses[frameTrackerIndex].mDeviceToAbsoluteTracking, ref frameTrackerData.PoseMatrix);
-                }
             }
 
             s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
@@ -192,9 +186,7 @@ public class TrackerManager : MonoBehaviour
             // If we are late (processing took > 11.1ms), reset the pacer
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
             if (now > nextTargetTime)
-            {
                 nextTargetTime = now + intervalTicks;
-            }
         }
     }
 

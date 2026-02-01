@@ -120,7 +120,13 @@ public sealed class RobUSTDescription
     /// <summary>Chest medial-lateral distance [m]</summary>
     public readonly double ChestMLDistance;
 
-    // Full 8-cable hardware definition (Static Database)
+    // ============ Force Plate Geometry ============
+    public readonly double3 FP_BackLeft;
+    public readonly double3 FP_BackRight;
+    public readonly double3 FP_FrontLeft;
+    public readonly double3 FP_FrontRight;
+
+    // Full 8-cable hardware definition (Static Database from vive tracker measurement)
     private static readonly double3[] AllPulleyPositions = new double3[]
     {
         new double3(-0.8114, 1.6556, 0.9400),   // 0: Front-Right Top (Motor 10)
@@ -148,6 +154,17 @@ public sealed class RobUSTDescription
         UserMass = userMass;
         UserShoulderWidth = shoulderWidth;
         UserHeight = userHeight;
+
+        // Force Plate Configuration ----
+        double3 back_left_correction   = new double3( 0.03, -0.03, -0.01);
+        double3 back_right_correction  = new double3( 0.03,  0.03, -0.01);
+        double3 front_left_correction  = new double3(-0.03, -0.03, -0.01);
+        double3 front_right_correction = new double3(-0.03,  0.03, -0.01);
+        // vive tracker jig readings:
+        FP_BackLeft   = new double3( 0.5385, 0.5793, -0.9520) + back_left_correction;
+        FP_BackRight  = new double3( 0.5234, 1.1350, -0.9463) + back_right_correction;
+        FP_FrontLeft  = new double3(-0.3202, 0.5510, -0.9525) + front_left_correction;
+        FP_FrontRight = new double3(-0.3341, 1.1077, -0.9458) + front_right_correction;        
         
         FramePulleyPositions = new double3[numCables];
         LocalAttachmentPoints = new double3[numCables];
