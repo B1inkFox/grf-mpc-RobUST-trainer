@@ -28,24 +28,10 @@ public sealed class ForcePlateCalibrator
     /// <summary>Scale factor for points (mm -> m)</summary>
     private const double mmToM = 0.001;
 
-    public ForcePlateCalibrator()
+    public ForcePlateCalibrator(RobUSTDescription robot)
     {
-        // ---- 1) Measured corners in O0 (meters) ----
-
-        // Small manual corrections (meters)
-        double3 back_left_correction   = new double3( 0.03, -0.03, -0.01);
-        double3 back_right_correction  = new double3( 0.03,  0.03, -0.01);
-        double3 front_left_correction  = new double3(-0.03, -0.03, -0.01);
-        double3 front_right_correction = new double3(-0.03,  0.03, -0.01);
-
-        // Raw measured corner positions (meters) + corrections
-        double3 back_left_corner   = new double3( 0.5385, 0.5793, -0.9520) + back_left_correction;
-        double3 back_right_corner  = new double3( 0.5234, 1.1350, -0.9463) + back_right_correction;
-        double3 front_left_corner  = new double3(-0.3202, 0.5510, -0.9525) + front_left_correction;
-        double3 front_right_corner = new double3(-0.3341, 1.1077, -0.9458) + front_right_correction;
-
-        double3 x_O0_raw = (front_right_corner - front_left_corner)  + (back_right_corner - back_left_corner);
-        double3 y_O0_raw = (front_left_corner - back_left_corner) + (front_right_corner - back_right_corner);
+        double3 x_O0_raw = (robot.FP_FrontRight - robot.FP_FrontLeft)  + (robot.FP_BackRight - robot.FP_BackLeft);
+        double3 y_O0_raw = (robot.FP_FrontLeft - robot.FP_BackLeft) + (robot.FP_FrontRight - robot.FP_BackRight);
 
         // ---- 2) Model corners in O1 (millimeters) ----
         // Obtained via GS orthogonalization
@@ -54,7 +40,7 @@ public sealed class ForcePlateCalibrator
         dir_y_O0 = math.normalize(dir_y_O0);
         double3 dir_z_O0 = math.cross(dir_x_O0, dir_y_O0);
         R_only = new double3x3(dir_x_O0, dir_y_O0, dir_z_O0);
-        t_O0 = (back_left_corner + back_right_corner) * 0.5;
+        t_O0 = (robot.FP_BackLeft + robot.FP_BackRight) * 0.5;
         
     }
 

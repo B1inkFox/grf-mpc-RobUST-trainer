@@ -19,7 +19,7 @@ public class RobotVisualizer : MonoBehaviour
     
     [Header("Camera Settings")]
     public Camera visualizationCamera;
-    public Vector3 camPos_RobotFrame = new Vector3(3.0f, 1.2f, 1.0f);
+    public Vector3 camPos_RobotFrame = new Vector3(3.0f, 1.2f, .7f);
 
     // -- Internal State --
     private RobUSTDescription robot;
@@ -47,7 +47,7 @@ public class RobotVisualizer : MonoBehaviour
 
     public bool Initialize(RobUSTDescription robotDescription)
     {
-        // 1. Validation
+        // Validation
         if (comTrackerVisual == null || endEffectorVisual == null || frameTrackerVisual == null || visualizationCamera == null)
         {
             Debug.LogError("RobotVisualizer: Please assign all Tracker Visuals.");
@@ -59,7 +59,6 @@ public class RobotVisualizer : MonoBehaviour
         StripPhysics(frameTrackerVisual);
         StripPhysics(visualizationCamera.transform);
 
-        // 2. Generate Pulley Spheres
         pulleySpheres = new Transform[robot.FramePulleyPositions.Length];
         var root = new GameObject("Generated_Visuals").transform;
         root.SetParent(this.transform);
@@ -78,15 +77,49 @@ public class RobotVisualizer : MonoBehaviour
             pulleySpheres[i] = sphere.transform;
         }
 
-        // 3. Generate Force Capsules
         grf0Capsule = CreateCapsule("Vis_GRF0", Color.cyan, root);
         grf1Capsule = CreateCapsule("Vis_GRF1", Color.cyan, root);
 
-        // 4. Setup Camera
+        GenerateForcePlateVisual(root);
         UpdateCamera();
 
         isInitialized = true;
         return true;
+    }
+
+    private void GenerateForcePlateVisual(Transform parent)
+    {
+        // Calculate center and orientation from corners in Description
+        var pBL = robot.FP_BackLeft;
+        var pBR = robot.FP_BackRight;
+        var pFL = robot.FP_FrontLeft;
+        var pFR = robot.FP_FrontRight;
+
+        double3 center = (pBL + pBR + pFL + pFR) * 0.25;
+        
+        // Approximate basis vectors for visualization
+        double3 forward = math.normalize((pFL - pBL) + (pFR - pBR)); // Approx Y usually
+        double3 right = math.normalize((pBR - pBL) + (pFR - pFL));   // Approx X usually
+        double3 up = math.cross(forward, right); // Z?
+        
+        // Dimensions
+        float length = (float)math.length((pFL - pBL) + (pFR - pBR)) * 0.5f;
+        float width = (float)math.length((pBR - pBL) + (pFR - pFL)) * 0.5f;
+        float thickness = 0.05f;
+
+        var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        cube.name = "ForcePlate_Surface";
+        cube.transform.SetParent(parent);
+        Destroy(cube.GetComponent<Collider>());
+        
+        cube.transform.position = (Vector3)RobotToUnityPos((float3)center - (float3)up * (thickness * 0.5f)); // Shift down so top surface is at 0
+        quaternion rotRobot = quaternion.LookRotation((float3)up, (float3)forward); 
+        cube.transform.rotation = (Quaternion)RobotToUnityRot(rotRobot);
+
+        cube.transform.localScale = new Vector3(width, thickness, length);
+
+        var ren = cube.GetComponent<Renderer>();
+        ren.material.color = new Color(0.3f, 0.3f, 0.3f, 0.5f); // Transparent Grey
     }
 
     /// <summary>

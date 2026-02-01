@@ -109,7 +109,7 @@ public class RobotController : MonoBehaviour
             enabled = false;
             return;
         }
-        if (!forcePlateManager.Initialize())
+        if (!forcePlateManager.Initialize(robotDescription))
         {
             Debug.LogWarning("Failed to initialize ForcePlateManager.", this);
             isForcePlateEnabled = false;
@@ -275,26 +275,6 @@ public class RobotController : MonoBehaviour
             comRefState.v + math.cross(comRefState.w, r_ref_global), // v_ee_ref = v_com + w x r
             comRefState.w                                          // Angular Velocity (Shared)
         );
-    }
-
-
-    /// <summary>
-    /// Helper method to get chest tracker's position relative to the static frame reference.
-    /// Useful for manually recording pulley positions during calibration.
-    /// </summary>
-    /// <returns>Position relative to frame tracker </returns>
-    public double4x4 GetEEPoseRelativeToFrame()
-    {
-        // Grab EE pose (UnityEngine.Matrix4x4 stored in TrackerData)
-        trackerManager.GetEndEffectorTrackerData(out TrackerData eeData);
-
-        // Convert both matrices to Unity.Mathematics.double4x4
-        double4x4 eePose = ToDouble4x4(eeData.PoseMatrix);
-        double4x4 framePose = ToDouble4x4(robot_frame_tracker.PoseMatrix);
-
-        // Compute relative pose: frame^-1 * ee
-        double4x4 frameInv = math.fastinverse(framePose);
-        return math.mul(frameInv, eePose);
     }
 
     // Local helper (keep near RobotController; same as already used elsewhere)

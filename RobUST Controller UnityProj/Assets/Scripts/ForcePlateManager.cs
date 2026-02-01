@@ -37,7 +37,7 @@ public class ForcePlateManager : MonoBehaviour
     /// Called by RobotController in the correct dependency order.
     /// </summary>
     /// <returns>True if initialization succeeded, false otherwise</returns>
-    public bool Initialize()
+    public bool Initialize(RobUSTDescription robotDescription)
     {
         // Ensure storage is ready even if SDK fails later
         if (numForcePlates <= 0)
@@ -46,7 +46,7 @@ public class ForcePlateManager : MonoBehaviour
             return false;
         }
         forcePlateDataArray = new ForcePlateData[numForcePlates];
-        calib = new ForcePlateCalibrator();
+        calib = new ForcePlateCalibrator(robotDescription);
         
         // Initialize the Vicon SDK
         if (!InitializeViconSDK()) return false;
