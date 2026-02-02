@@ -29,7 +29,7 @@ public class ImpedanceController : BaseController<Wrench>
     public ImpedanceController()
     {
         // Default gains
-        K_pos = new double3(5, 5, 5);
+        K_pos = new double3(250, 250, 800);
         D_pos = new double3(.01, .01, .01);
         K_ori = new double3(1, 1, 1);
         D_ori = new double3(.01, .01, .01);
