@@ -394,6 +394,7 @@ public class MPCSolver : BaseController<double[]>
 
     public void ComputeOptimalTrajectory(Span<RBState> results)
     {
+        if (warmStart == null || warmStart.Length < numVars) return;
         ComputeTrajectory(results, useControl: true);
     }
     public void ComputeFreeTrajectory(Span<RBState> results)
