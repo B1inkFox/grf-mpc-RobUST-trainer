@@ -40,7 +40,7 @@ public class MPCSolver : BaseController<double[]>
     public double3 Q_Theta { get; set; } = new double3(0.001, 0.001, 0.001);
     public double3 Q_vel { get; set; } = new double3(1.0, 1.0, 1.0);
     public double3 Q_omega { get; set; } = new double3(1.0, 1.0, 1.0);
-    private readonly double alpha = 0.00001;  // control effort weight
+    public  readonly double alpha = 0.001;  // control effort weight
     private readonly double3x3 I_body; // Inertia tensor in body frame [kg·m²]
     private double3x3 I_world_inv;
     private RBState[] Xref;  // Reference trajectory over horizon

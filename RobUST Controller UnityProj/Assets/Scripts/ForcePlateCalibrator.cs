@@ -25,8 +25,6 @@ public sealed class ForcePlateCalibrator
     /// <summary>Translation of O1 origin in O0</summary>
     public readonly double3 t_O0;
 
-    /// <summary>Scale factor for points (mm -> m)</summary>
-    private const double mmToM = 0.001;
 
     public ForcePlateCalibrator(RobUSTDescription robot)
     {
@@ -47,21 +45,21 @@ public sealed class ForcePlateCalibrator
     // ===================== Public projection APIs =====================
 
     /// <summary>
-    /// Project a local point from O1 (in millimeters) to O0 (in meters).
+    /// Project a local point from O1 to O0.
     /// Math-only path: double3.
     /// </summary>
-    public void ProjectPosition(in double3 pO1_mm, out double3 pO0_m)
+    public void ProjectPosition(in double3 pO1_m, out double3 pO0_m)
     {
-        // pO0 = t + R * (mmToM * pO1_mm)
-        pO0_m = t_O0 + math.mul(R_only, mmToM * pO1_mm);
+        // pO0 = t + R * pO1_m
+        pO0_m = t_O0 + math.mul(R_only, pO1_m);
     }
 
     /// <summary>
     /// Convenience overload for existing call sites that still pass Vector3.
     /// </summary>
-    public void ProjectPosition(in Vector3 pO1_mm, out double3 pO0_m)
+    public void ProjectPosition(in Vector3 pO1_m, out double3 pO0_m)
     {
-        ProjectPosition(ToDouble3(pO1_mm), out pO0_m);
+        ProjectPosition(ToDouble3(pO1_m), out pO0_m);
     }
 
     /// <summary>

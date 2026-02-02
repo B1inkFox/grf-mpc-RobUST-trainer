@@ -94,7 +94,7 @@ public class RobotController : MonoBehaviour
         Xref_global = new RBState[2000]; // 20 seconds buffer
         // stable standing
         RBState staticPoint = new RBState(
-            new double3(0, 0.75, 0), 
+            new double3(0.2, 0.75, 0), 
             new double3(0, 0, math.PI/2), 
             new double3(0, 0, 0), 
             new double3(0, 0, 0)
@@ -152,6 +152,7 @@ public class RobotController : MonoBehaviour
         if (Keyboard.current.tKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
         if (Keyboard.current.mKey.wasPressedThisFrame) { if (isForcePlateEnabled) currentControlMode = CONTROL_MODE.MPC; }
         if (Keyboard.current.iKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.IMPEDANCE; }
+        
     }
 
     /// <summary>
@@ -199,7 +200,7 @@ public class RobotController : MonoBehaviour
             
             filter_10Hz.Update(comPose_RF, eePose_RF, netFPData);
             FillXrefHorizon((int)trajectoryIndex, Xref_horizon);
-
+            Debug.Log($"ee position: {eePose_RF.c3.xyz}");
             switch (currentControlMode)
             {
                 case CONTROL_MODE.OFF:
@@ -234,7 +235,6 @@ public class RobotController : MonoBehaviour
 
                     impedanceController.UpdateState(eePose_RF, filter_10Hz.EELinearVelocity, filter_10Hz.EEAngularVelocity, target);
                     Wrench goalWrench = impedanceController.computeNextControl();
-                    Debug.Log($"Impedance Control Wrench: F=({goalWrench.Force}), T=({goalWrench.Torque})");
                     solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, goalWrench);
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
                     visualizer.PushGoalTrajectory(Xref_horizon.Slice(0, 1));

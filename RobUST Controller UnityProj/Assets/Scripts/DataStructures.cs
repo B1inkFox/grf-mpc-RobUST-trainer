@@ -129,14 +129,14 @@ public sealed class RobUSTDescription
     // Full 8-cable hardware definition (Static Database from vive tracker measurement)
     private static readonly double3[] AllPulleyPositions = new double3[]
     {
-        new double3(-0.8114, 1.6556, 0.9400),   // 0: Front-Right Top (Motor 10)
-        new double3(-0.8066, 0.0084, 0.8895),   // 1: Front-Left Top (Motor 5)
-        new double3(0.9827, 0.0592, 0.9126),    // 2: Back-Left Top (Motor 4)
-        new double3(0.9718, 1.6551, 0.9411),    // 3: Back-Right Top (Motor 11)
-        new double3(-0.8084, 1.6496, -0.3060),  // 4: Front-Right Bottom (Motor 8)
-        new double3(-0.7667, 0.0144, -0.3243),  // 5: Front-Left Bottom (Motor 7)
-        new double3(0.9748, 0.0681, -0.5438),   // 6: Back-Left Bottom (Motor 2)
-        new double3(0.9498, 1.6744, -0.5409)    // 7: Back-Right Bottom (Motor 13)
+        new double3(-0.8000, 1.650, 0.9875),   // 0: Front-Right Top (Motor 10)
+        new double3(-0.7900, 0.0022, 0.9540),   // 1: Front-Left Top (Motor 5)
+        new double3(0.9580, 0.0335, 0.9828),    // 2: Back-Left Top (Motor 4)
+        new double3(0.9650, 1.6420, 1.0000),    // 3: Back-Right Top (Motor 11)
+        new double3(-0.7850, 1.6750, -0.2920),  // 4: Front-Right Bottom (Motor 8)
+        new double3(-0.7800, 0.0330, -0.3340),  // 5: Front-Left Bottom (Motor 7)
+        new double3(0.9850, 0.0520, -0.5165),   // 6: Back-Left Bottom (Motor 2)
+        new double3(0.9800, 1.6890, -0.4994)    // 7: Back-Right Bottom (Motor 13)
     };
 
     // Mapping from solver index to motor driver index for the full set

@@ -13,13 +13,12 @@ public class RobotVisualizer : MonoBehaviour
     public Transform endEffectorVisual;
     public Transform frameTrackerVisual;
 
-    [Header("Force Visualization")]
-    public float metersPerNewton = 0.005f;
-    public float forceCapsuleRadius = 0.01f;
-    
     [Header("Camera Settings")]
     public Camera visualizationCamera;
     public Vector3 camPos_RobotFrame = new Vector3(3.0f, 1.2f, .7f);
+
+    private float metersPerNewton = 0.002f;
+    private float forceCapsuleRadius = 0.01f;
 
     // -- Goal Trajectory Constants --
     private const int GoalTrajSteps = 10;
@@ -429,9 +428,8 @@ public class RobotVisualizer : MonoBehaviour
     {
         float3 camPos = new float3(camPos_RobotFrame.x, camPos_RobotFrame.y, camPos_RobotFrame.z);
         visualizationCamera.transform.position = (Vector3)RobotToUnityPos(camPos);
-        visualizationCamera.transform.LookAt(Vector3.zero);
-        visualizationCamera.transform.Rotate(0f, 15f, 0f, Space.World);
-
+        float3 robust_center = new float3(0f, 0.7f, 0.2f);
+        visualizationCamera.transform.LookAt((Vector3)RobotToUnityPos(robust_center));
     }
 
     private void StripPhysics(Transform root)
