@@ -38,8 +38,6 @@ public class RobotVisualizer : MonoBehaviour
     // Storing full 4x4 matrices (double precision) to match your controller
     private double4x4 _comPose_Robot;
     private double4x4 _eePose_Robot;
-    
-    // Forces
     private double3 _cop0_Robot;
     private double3 _grf0_Robot;
     private double3 _cop1_Robot;
@@ -59,67 +57,17 @@ public class RobotVisualizer : MonoBehaviour
         StripPhysics(frameTrackerVisual);
         StripPhysics(visualizationCamera.transform);
 
-        pulleySpheres = new Transform[robot.FramePulleyPositions.Length];
         var root = new GameObject("Generated_Visuals").transform;
         root.SetParent(this.transform);
 
-        for (int i = 0; i < robot.FramePulleyPositions.Length; i++)
-        {
-            var sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            sphere.name = $"Pulley_{i}";
-            sphere.transform.SetParent(root);
-            sphere.transform.localScale = new Vector3(0.1f, 0.1f, 0.1f);
-            
-            Destroy(sphere.GetComponent<Collider>());
-            sphere.GetComponent<Renderer>().material.color = Color.gray;
-
-            sphere.transform.position = (Vector3)RobotToUnityPos((float3)robot.FramePulleyPositions[i]);
-            pulleySpheres[i] = sphere.transform;
-        }
-
         grf0Capsule = CreateCapsule("Vis_GRF0", Color.cyan, root);
         grf1Capsule = CreateCapsule("Vis_GRF1", Color.cyan, root);
-
+        GeneratePulleyVisuals(root);
         GenerateForcePlateVisual(root);
         UpdateCamera();
 
         isInitialized = true;
         return true;
-    }
-
-    private void GenerateForcePlateVisual(Transform parent)
-    {
-        // Calculate center and orientation from corners in Description
-        var pBL = robot.FP_BackLeft;
-        var pBR = robot.FP_BackRight;
-        var pFL = robot.FP_FrontLeft;
-        var pFR = robot.FP_FrontRight;
-
-        double3 center = (pBL + pBR + pFL + pFR) * 0.25;
-        
-        // Approximate basis vectors for visualization
-        double3 forward = math.normalize((pFL - pBL) + (pFR - pBR)); // Approx Y usually
-        double3 right = math.normalize((pBR - pBL) + (pFR - pFL));   // Approx X usually
-        double3 up = math.cross(forward, right); // Z?
-        
-        // Dimensions
-        float length = (float)math.length((pFL - pBL) + (pFR - pBR)) * 0.5f;
-        float width = (float)math.length((pBR - pBL) + (pFR - pFL)) * 0.5f;
-        float thickness = 0.05f;
-
-        var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        cube.name = "ForcePlate_Surface";
-        cube.transform.SetParent(parent);
-        Destroy(cube.GetComponent<Collider>());
-        
-        cube.transform.position = (Vector3)RobotToUnityPos((float3)center - (float3)up * (thickness * 0.5f)); // Shift down so top surface is at 0
-        quaternion rotRobot = quaternion.LookRotation((float3)up, (float3)forward); 
-        cube.transform.rotation = (Quaternion)RobotToUnityRot(rotRobot);
-
-        cube.transform.localScale = new Vector3(width, thickness, length);
-
-        var ren = cube.GetComponent<Renderer>();
-        ren.material.color = new Color(0.3f, 0.3f, 0.3f, 0.5f); // Transparent Grey
     }
 
     /// <summary>
@@ -135,7 +83,6 @@ public class RobotVisualizer : MonoBehaviour
         {
             _comPose_Robot = comPose;
             _eePose_Robot = eePose;
-            
             _cop0_Robot = cop0;
             _grf0_Robot = grf0;
             _cop1_Robot = cop1;
@@ -181,15 +128,6 @@ public class RobotVisualizer : MonoBehaviour
 
         UpdateForceCapsule(grf0Capsule, RobotToUnityPos((float3)cop0), RobotToUnityPos((float3)grf0));
         UpdateForceCapsule(grf1Capsule, RobotToUnityPos((float3)cop1), RobotToUnityPos((float3)grf1));
-    }
-
-    private void UpdateCamera()
-    {
-        float3 camPos = new float3(camPos_RobotFrame.x, camPos_RobotFrame.y, camPos_RobotFrame.z);
-        visualizationCamera.transform.position = (Vector3)RobotToUnityPos(camPos);
-        visualizationCamera.transform.LookAt(Vector3.zero);
-        visualizationCamera.transform.Rotate(0f, 15f, 0f, Space.World);
-
     }
 
     // =========================================================
@@ -239,6 +177,69 @@ public class RobotVisualizer : MonoBehaviour
         go.GetComponent<Renderer>().material.color = c;
         go.transform.localScale = Vector3.zero;
         return go.transform;
+    }
+
+    private void GeneratePulleyVisuals(Transform root)
+    {
+        pulleySpheres = new Transform[robot.FramePulleyPositions.Length];
+        
+        for (int i = 0; i < robot.FramePulleyPositions.Length; i++)
+        {
+            var sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            sphere.name = $"Pulley_{i}";
+            sphere.transform.SetParent(root);
+            sphere.transform.localScale = new Vector3(0.1f, 0.1f, 0.1f);
+            
+            Destroy(sphere.GetComponent<Collider>());
+            sphere.GetComponent<Renderer>().material.color = Color.gray;
+
+            sphere.transform.position = (Vector3)RobotToUnityPos((float3)robot.FramePulleyPositions[i]);
+            pulleySpheres[i] = sphere.transform;
+        }
+    }
+    
+    private void GenerateForcePlateVisual(Transform parent)
+    {
+        // Calculate center and orientation from corners in Description
+        var pBL = robot.FP_BackLeft;
+        var pBR = robot.FP_BackRight;
+        var pFL = robot.FP_FrontLeft;
+        var pFR = robot.FP_FrontRight;
+
+        double3 center = (pBL + pBR + pFL + pFR) * 0.25;
+        
+        // Approximate basis vectors for visualization
+        double3 forward = math.normalize((pFL - pBL) + (pFR - pBR)); // Approx Y usually
+        double3 right = math.normalize((pBR - pBL) + (pFR - pFL));   // Approx X usually
+        double3 up = math.cross(forward, right); // Z?
+        
+        // Dimensions
+        float length = (float)math.length((pFL - pBL) + (pFR - pBR)) * 0.5f;
+        float width = (float)math.length((pBR - pBL) + (pFR - pFL)) * 0.5f;
+        float thickness = 0.05f;
+
+        var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        cube.name = "ForcePlate_Surface";
+        cube.transform.SetParent(parent);
+        Destroy(cube.GetComponent<Collider>());
+        
+        cube.transform.position = (Vector3)RobotToUnityPos((float3)center - (float3)up * (thickness * 0.5f)); // Shift down so top surface is at 0
+        quaternion rotRobot = quaternion.LookRotation((float3)up, (float3)forward); 
+        cube.transform.rotation = (Quaternion)RobotToUnityRot(rotRobot);
+
+        cube.transform.localScale = new Vector3(width, thickness, length);
+
+        var ren = cube.GetComponent<Renderer>();
+        ren.material.color = new Color(0.3f, 0.3f, 0.3f, 0.5f); // Transparent Grey
+    }
+
+    private void UpdateCamera()
+    {
+        float3 camPos = new float3(camPos_RobotFrame.x, camPos_RobotFrame.y, camPos_RobotFrame.z);
+        visualizationCamera.transform.position = (Vector3)RobotToUnityPos(camPos);
+        visualizationCamera.transform.LookAt(Vector3.zero);
+        visualizationCamera.transform.Rotate(0f, 15f, 0f, Space.World);
+
     }
 
     /// <summary>
