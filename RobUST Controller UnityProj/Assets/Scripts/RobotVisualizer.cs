@@ -21,27 +21,36 @@ public class RobotVisualizer : MonoBehaviour
     public Camera visualizationCamera;
     public Vector3 camPos_RobotFrame = new Vector3(3.0f, 1.2f, .7f);
 
+    // -- Goal Trajectory Constants --
+    private const int GoalTrajSteps = 10;
+    private const float GoalSphereDiameter = 0.1f;
+    private readonly Color GoalTrajColor = new Color(0.0f, 1.0f, 0.0f, 0.4f); // Transparent Green
+    private readonly Color MpcTrajColor = new Color(0.0f, 0.0f, 1.0f, 0.4f); // Transparent Blue
+
     // -- Internal State --
     private RobUSTDescription robot;
     private bool isInitialized = false;
+
     private Transform[] pulleySpheres;
-    
-    // Procedural Force Capsules
     private Transform grf0Capsule;
     private Transform grf1Capsule;
+    private Transform[] goalTrajectorySpheres;
+    private Transform[] mpcTrajectorySpheres;
 
     // -- Thread Safety --
     private readonly object dataLock = new object();
-    private bool hasNewData = false;
 
-    // -- CACHED DATA (HTM Matrices) --
-    // Storing full 4x4 matrices (double precision) to match your controller
+    // -- CACHED DATA --
     private double4x4 _comPose_Robot;
     private double4x4 _eePose_Robot;
     private double3 _cop0_Robot;
     private double3 _grf0_Robot;
     private double3 _cop1_Robot;
     private double3 _grf1_Robot;
+
+    // Trajectory Caches
+    private double3[] _goalTrajectoryCache = new double3[GoalTrajSteps];
+    private double3[] _mpcTrajectoryCache = new double3[GoalTrajSteps];
 
     public bool Initialize(RobUSTDescription robotDescription)
     {
@@ -64,6 +73,10 @@ public class RobotVisualizer : MonoBehaviour
         grf1Capsule = CreateCapsule("Vis_GRF1", Color.cyan, root);
         GeneratePulleyVisuals(root);
         GenerateForcePlateVisual(root);
+        GenerateGoalTrajectoryVisuals(root);
+        GenerateMpcTrajectoryVisuals(root);
+        GenerateInertiaEllipsoid();
+
         UpdateCamera();
 
         isInitialized = true;
@@ -87,8 +100,59 @@ public class RobotVisualizer : MonoBehaviour
             _grf0_Robot = grf0;
             _cop1_Robot = cop1;
             _grf1_Robot = grf1;
+        }
+    }
 
-            hasNewData = true;
+    /// <summary>
+    /// Pushes a goal trajectory to the visualizer.
+    /// If span < 10, the last valid point is repeated for remaining spheres.
+    /// If span >= 10, the first 10 points are used.
+    /// </summary>
+    public void PushGoalTrajectory(ReadOnlySpan<RBState> trajectory)
+    {
+        if (trajectory.IsEmpty) return;
+
+        lock (dataLock)
+        {
+            int len = trajectory.Length;
+            int copyCount = (len < GoalTrajSteps) ? len : GoalTrajSteps;
+
+            // 1. Copy available points
+            for (int i = 0; i < copyCount; i++)
+                _goalTrajectoryCache[i] = trajectory[i].p;
+
+            // 2. Clamp remaining if short trajectory
+            if (len < GoalTrajSteps)
+            {
+                double3 lastP = trajectory[len - 1].p;
+                for (int i = len; i < GoalTrajSteps; i++)
+                    _goalTrajectoryCache[i] = lastP;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pushes a MPC trajectory to the visualizer.
+    /// Optimized filling of cached trajectory positions.
+    /// </summary>
+    public void PushMpcTrajectory(ReadOnlySpan<RBState> trajectory)
+    {
+        if (trajectory.IsEmpty) return;
+
+        lock (dataLock)
+        {
+            int len = trajectory.Length;
+            int copyCount = (len < GoalTrajSteps) ? len : GoalTrajSteps;
+
+            for (int i = 0; i < copyCount; i++)
+                _mpcTrajectoryCache[i] = trajectory[i].p;
+
+            if (len < GoalTrajSteps)
+            {
+                double3 lastP = trajectory[len - 1].p;
+                for (int i = len; i < GoalTrajSteps; i++)
+                    _mpcTrajectoryCache[i] = lastP;
+            }
         }
     }
 
@@ -99,19 +163,22 @@ public class RobotVisualizer : MonoBehaviour
         // Local cache vars
         double4x4 comMat, eeMat;
         double3 cop0, grf0, cop1, grf1;
+        Span<double3> goalSnapshot = stackalloc double3[GoalTrajSteps];
+        Span<double3> mpcSnapshot = stackalloc double3[GoalTrajSteps];
 
         lock (dataLock)
         {
-            if (!hasNewData) return;
+            // Simple snapshotting - dump latest state
             comMat = _comPose_Robot;
             eeMat = _eePose_Robot;
             cop0 = _cop0_Robot;
             grf0 = _grf0_Robot;
             cop1 = _cop1_Robot;
             grf1 = _grf1_Robot;
-            hasNewData = false;
+            new ReadOnlySpan<double3>(_goalTrajectoryCache).CopyTo(goalSnapshot);
+            new ReadOnlySpan<double3>(_mpcTrajectoryCache).CopyTo(mpcSnapshot);
         }
-        
+
         // 1. Cast to float4x4 once (Visuals don't need double precision)
         float4x4 comF = (float4x4)comMat;
         float4x4 eeF = (float4x4)eeMat;
@@ -128,6 +195,14 @@ public class RobotVisualizer : MonoBehaviour
 
         UpdateForceCapsule(grf0Capsule, RobotToUnityPos((float3)cop0), RobotToUnityPos((float3)grf0));
         UpdateForceCapsule(grf1Capsule, RobotToUnityPos((float3)cop1), RobotToUnityPos((float3)grf1));
+
+        // Update Goal Trajectory
+        for (int i = 0; i < GoalTrajSteps; i++)
+            goalTrajectorySpheres[i].position = (Vector3)RobotToUnityPos((float3)goalSnapshot[i]);
+
+        // Update MPC Trajectory
+        for (int i = 0; i < GoalTrajSteps; i++)
+            mpcTrajectorySpheres[i].position = (Vector3)RobotToUnityPos((float3)mpcSnapshot[i]);
     }
 
     // =========================================================
@@ -179,6 +254,51 @@ public class RobotVisualizer : MonoBehaviour
         return go.transform;
     }
 
+    private void GenerateInertiaEllipsoid()
+    {
+        if (comTrackerVisual == null) return;
+
+        // 1. Create Child Visual (Overlay)
+        var sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        sphere.name = "Inertia_Ellipsoid";
+        
+        Transform ellipT = sphere.transform;
+        ellipT.SetParent(comTrackerVisual); 
+        ellipT.localPosition = Vector3.zero;
+        ellipT.localRotation = Quaternion.identity;
+        Destroy(sphere.GetComponent<Collider>());
+
+        // 2. Define Inertia in Robot Frame (Diagonal approximation)
+        double w_half = robot.UserShoulderWidth / 2.0;
+        double I_trans = robot.UserMass / 12.0 * (3 * w_half * w_half + math.pow(robot.UserHeight, 2));
+        double I_long  = robot.UserMass / 2.0 * (w_half * w_half);
+
+        double3 inertia_Robot = new double3(I_trans, I_trans, I_long);
+
+        // 3. Convert to Size: Inverse Inertia (Mobility) * Tuning Factor
+        double3 scale_Robot = (1.0 / inertia_Robot) * 2f; 
+
+        // 4. Map to Unity Scale (Automatic Swizzle: x,y,z -> x,z,y)
+        ellipT.localScale = (Vector3)RobotToUnityPos((float3)scale_Robot);
+
+        // 5. Translucent Material
+        var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Standard");
+        var mat = new Material(shader);
+        Color c = new Color(1.0f, 0.75f, 0.8f, 0.25f); // Light Pink
+
+        mat.SetFloat("_Surface", 1); 
+        mat.SetFloat("_Mode", 3);    
+        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        mat.SetInt("_ZWrite", 0);
+        mat.EnableKeyword("_ALPHABLEND_ON");
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT"); 
+        mat.renderQueue = 3000;
+        mat.SetColor(mat.HasProperty("_BaseColor") ? "_BaseColor" : "_Color", c);
+        
+        sphere.GetComponent<Renderer>().sharedMaterial = mat;
+    }
+
     private void GeneratePulleyVisuals(Transform root)
     {
         pulleySpheres = new Transform[robot.FramePulleyPositions.Length];
@@ -198,7 +318,7 @@ public class RobotVisualizer : MonoBehaviour
         }
     }
     
-    private void GenerateForcePlateVisual(Transform parent)
+    private void GenerateForcePlateVisual(Transform root)
     {
         // Calculate center and orientation from corners in Description
         var pBL = robot.FP_BackLeft;
@@ -220,7 +340,7 @@ public class RobotVisualizer : MonoBehaviour
 
         var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
         cube.name = "ForcePlate_Surface";
-        cube.transform.SetParent(parent);
+        cube.transform.SetParent(root);
         Destroy(cube.GetComponent<Collider>());
         
         cube.transform.position = (Vector3)RobotToUnityPos((float3)center - (float3)up * (thickness * 0.5f)); // Shift down so top surface is at 0
@@ -233,6 +353,78 @@ public class RobotVisualizer : MonoBehaviour
         ren.material.color = new Color(0.3f, 0.3f, 0.3f, 0.5f); // Transparent Grey
     }
 
+    private void GenerateGoalTrajectoryVisuals(Transform root)
+    {
+        goalTrajectorySpheres = new Transform[GoalTrajSteps];
+        var trajRoot = new GameObject("Goal_Trajectory").transform;
+        trajRoot.SetParent(root);
+
+        // Attempt URP Unlit (fastest/cleanest), fallback to Standard
+        var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Standard");
+        var mat = new Material(shader);
+
+        // Setup Transparency (Works for both usually)
+        mat.SetFloat("_Surface", 1); // URP
+        mat.SetFloat("_Mode", 3);    // Standard
+        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        mat.SetInt("_ZWrite", 0);
+        mat.EnableKeyword("_ALPHABLEND_ON");
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT"); 
+        mat.renderQueue = 3000;
+
+        // Set Color (URP uses _BaseColor, Standard uses _Color)
+        mat.SetColor("_BaseColor", GoalTrajColor); 
+        mat.SetColor("_Color", GoalTrajColor);
+
+        for (int i = 0; i < GoalTrajSteps; i++)
+        {
+            var sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            sphere.name = $"Goal_Step_{i}";
+            sphere.transform.SetParent(trajRoot);
+            
+            Destroy(sphere.GetComponent<Collider>());
+            sphere.GetComponent<Renderer>().sharedMaterial = mat; 
+            sphere.transform.localScale = Vector3.one * GoalSphereDiameter;
+            sphere.transform.position = Vector3.zero;
+            goalTrajectorySpheres[i] = sphere.transform;
+        }
+    }
+
+    private void GenerateMpcTrajectoryVisuals(Transform root)
+    {
+        mpcTrajectorySpheres = new Transform[GoalTrajSteps];
+        var trajRoot = new GameObject("MPC_Trajectory").transform;
+        trajRoot.SetParent(root);
+
+        var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Standard");
+        var mat = new Material(shader);
+
+        mat.SetFloat("_Surface", 1); 
+        mat.SetFloat("_Mode", 3);    
+        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        mat.SetInt("_ZWrite", 0);
+        mat.EnableKeyword("_ALPHABLEND_ON");
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT"); 
+        mat.renderQueue = 3000;
+
+        mat.SetColor(mat.HasProperty("_BaseColor") ? "_BaseColor" : "_Color", MpcTrajColor);
+
+        for (int i = 0; i < GoalTrajSteps; i++)
+        {
+            var sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            sphere.name = $"MPC_Step_{i}";
+            sphere.transform.SetParent(trajRoot);
+            
+            Destroy(sphere.GetComponent<Collider>());
+            sphere.GetComponent<Renderer>().sharedMaterial = mat; 
+            sphere.transform.localScale = Vector3.one * GoalSphereDiameter;
+            sphere.transform.position = Vector3.zero;
+            mpcTrajectorySpheres[i] = sphere.transform;
+        }
+    }
+
     private void UpdateCamera()
     {
         float3 camPos = new float3(camPos_RobotFrame.x, camPos_RobotFrame.y, camPos_RobotFrame.z);
@@ -242,10 +434,6 @@ public class RobotVisualizer : MonoBehaviour
 
     }
 
-    /// <summary>
-    /// recursively removes Colliders and Rigidbodies from a transform and its children.
-    /// Ensures purely visual behavior with no physics overhead.
-    /// </summary>
     private void StripPhysics(Transform root)
     {
         if (root == null) return;

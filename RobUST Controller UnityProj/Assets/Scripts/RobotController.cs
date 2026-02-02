@@ -37,7 +37,7 @@ public class RobotController : MonoBehaviour
     public volatile CONTROL_MODE currentControlMode = CONTROL_MODE.OFF;
 
     [Header("Robot Geometry Configuration")]
-    [Tooltip("Number of cables in the system.")]
+    [Tooltip("Number of cables in the system. We currently support 8 or 4 cables")]
     public int numCables = 8;
     [Tooltip("Measured thickness of the chest in the anterior-posterior direction [m].")]
     public float chestAPDistance = 0.2f;
@@ -175,6 +175,9 @@ public class RobotController : MonoBehaviour
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
         long lastLoopTick = System.Diagnostics.Stopwatch.GetTimestamp();
 
+        Span<RBState> Xref_horizon = stackalloc RBState[10];
+        Span<RBState> mpc_results = stackalloc RBState[10];
+
         while (isRunning)
         {
             long loopStartTick = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -195,6 +198,7 @@ public class RobotController : MonoBehaviour
             ForcePlateData netFPData = new ForcePlateData(netForce, netCoP);
             
             filter_10Hz.Update(comPose_RF, eePose_RF, netFPData);
+            FillXrefHorizon((int)trajectoryIndex, Xref_horizon);
 
             switch (currentControlMode)
             {
@@ -205,25 +209,35 @@ public class RobotController : MonoBehaviour
                     Wrench zeroWrench = new Wrench(double3.zero, double3.zero);
                     solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, zeroWrench);
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
+                    visualizer.PushGoalTrajectory(Xref_horizon.Slice(0, 1));
                     trajectoryIndex++;
                     break;
                 case CONTROL_MODE.MPC:
                     ForcePlateData filteredFPData = new ForcePlateData(filter_10Hz.FilteredGRF, filter_10Hz.FilteredCoP);
-                    controller.UpdateReferenceTrajectory(Xref_global.AsSpan(), (int)trajectoryIndex);
+                    
+                    controller.UpdateReferenceTrajectory(Xref_horizon, 0); // Use lookahead buffer directly
                     controller.UpdateState(eePose_RF, comPose_RF, filter_10Hz.CoMLinearVelocity, filter_10Hz.CoMAngularVelocity, filteredFPData);
                     solver_tensions = controller.computeNextControl();
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
+                    
+                    visualizer.PushGoalTrajectory(Xref_horizon); // Sync visual horizon
+
+                    // --- Visualization: MPC Trajectory ---
+                    controller.ComputeOptimalTrajectory(mpc_results);
+                    visualizer.PushMpcTrajectory(mpc_results);
+                    // -------------------------------------
+
                     trajectoryIndex++;
                     break;
                 case CONTROL_MODE.IMPEDANCE:
-                    int safeIdx = (trajectoryIndex < Xref_global.Length) ? (int)trajectoryIndex : Xref_global.Length - 1;
-                    RBState target = ComputeEERefFromCoMRef(Xref_global[safeIdx], comPose_RF, eePose_RF);
+                    RBState target = ComputeEERefFromCoMRef(Xref_horizon[0], comPose_RF, eePose_RF);
 
                     impedanceController.UpdateState(eePose_RF, filter_10Hz.EELinearVelocity, filter_10Hz.EEAngularVelocity, target);
                     Wrench goalWrench = impedanceController.computeNextControl();
                     Debug.Log($"Impedance Control Wrench: F=({goalWrench.Force}), T=({goalWrench.Torque})");
                     solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, goalWrench);
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
+                    visualizer.PushGoalTrajectory(Xref_horizon.Slice(0, 1));
                     trajectoryIndex++;
                     break;
             }
@@ -323,6 +337,28 @@ public class RobotController : MonoBehaviour
             int motorIndex = robotDescription.SolverToMotorMap[i];
             output[motorIndex] = solverResult[i];
         }
+    }
+
+    /// <summary>
+    /// Safely fills the destination span with the lookahead trajectory.
+    /// Uses module-level Xref_global directly. Optimized for Unity.Mathematics.
+    /// </summary>
+    private void FillXrefHorizon(int startIndex, Span<RBState> destination)
+    {
+        int sourceLen = Xref_global.Length;
+        int destinationLen = destination.Length;
+
+        if (startIndex >= sourceLen)
+        {
+            destination.Fill(Xref_global[sourceLen - 1]);
+            return;
+        }
+
+        int copyCount = math.min(destinationLen, sourceLen - startIndex);
+        Xref_global.AsSpan(startIndex, copyCount).CopyTo(destination);
+
+        if (copyCount < destinationLen)
+            destination.Slice(copyCount).Fill(Xref_global[sourceLen - 1]);
     }
 
     // private class for recursively filtering sensor data
