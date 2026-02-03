@@ -274,8 +274,16 @@ public class RobotVisualizer : MonoBehaviour
 
         double3 inertia_Robot = new double3(I_trans, I_trans, I_long);
 
-        // 3. Convert to Size: Inverse Inertia (Mobility) * Tuning Factor
-        double3 scale_Robot = (1.0 / inertia_Robot) * 2f; 
+        // 3. Normalize to Water Density (1000 kg/m^3) to ensure consistent, realistic size
+        double targetVolume = robot.UserMass / 1000.0;
+        
+        // Inverse Inertia shape: r ~ 1/sqrt(I)
+        double3 rootI = math.sqrt(inertia_Robot);
+        double3 rawRadii = new double3(1.0 / rootI.x, 1.0 / rootI.y, 1.0 / rootI.z);
+        double currentVolumeScale = (4.0/3.0) * math.PI * rawRadii.x * rawRadii.y * rawRadii.z;
+        double volumeCorrection = math.pow(targetVolume / currentVolumeScale, 1.0/3.0);
+        
+        double3 scale_Robot = rawRadii * volumeCorrection * 2.0; // Diameter = 2 * Radius
 
         // 4. Map to Unity Scale (Automatic Swizzle: x,y,z -> x,z,y)
         ellipT.localScale = (Vector3)RobotToUnityPos((float3)scale_Robot);

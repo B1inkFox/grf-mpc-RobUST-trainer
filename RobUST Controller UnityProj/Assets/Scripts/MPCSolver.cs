@@ -36,10 +36,10 @@ public class MPCSolver : BaseController<double[]>
     private double3x3 E_Theta;          // E(Θ): angular velocity to euler rates
 
     // MPC weights (public setters for gain scheduling)
-    public double3 Q_pos { get; set; } = new double3(50.0, 50.0, 50.0);
+    public double3 Q_pos { get; set; } = new double3(500.0, 500.0, 500.0);
     public double3 Q_Theta { get; set; } = new double3(0.001, 0.001, 0.001);
-    public double3 Q_vel { get; set; } = new double3(1.0, 1.0, 1.0);
-    public double3 Q_omega { get; set; } = new double3(1.0, 1.0, 1.0);
+    public double3 Q_vel { get; set; } = new double3(50.0, 50.0, 50.0);
+    public double3 Q_omega { get; set; } = new double3(0.001, 0.001, 0.001);
     public  readonly double alpha = 0.001;  // control effort weight
     private readonly double3x3 I_body; // Inertia tensor in body frame [kg·m²]
     private double3x3 I_world_inv;
@@ -401,22 +401,15 @@ public class MPCSolver : BaseController<double[]>
     {
         ComputeTrajectory(results, useControl: false);
     }
-
-    /// <summary>
-    /// Shared integration logic to ensure visualizer matches solver physics exactly.
-    /// </summary>
     private void ComputeTrajectory(Span<RBState> results, bool useControl)
     {
         // Re-calculate constant disturbance terms locally 
         // (Must match BuildLinearCost logic exactly)
-        double3 d_vel = g_vec + (netGRF / robot.UserMass);
+        double3 d_vel = dt * g_vec + (netGRF / robot.UserMass);
         
         double3 r_cop = netCoP - x0.p; 
         double3 tau_grf = math.cross(r_cop, netGRF);
-        double3 d_ang = math.mul(I_world_inv, tau_grf);
-
-        d_vel *= dt;
-        d_ang *= dt;
+        double3 d_ang = dt * math.mul(I_world_inv, tau_grf);
 
         RBState x_k = x0;
         int steps = math.min(results.Length, horizon);
