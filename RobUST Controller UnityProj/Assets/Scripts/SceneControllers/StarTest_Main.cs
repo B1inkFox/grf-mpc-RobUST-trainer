@@ -11,7 +11,7 @@ using System.Threading;
 /// This class centralizes the robot's state management, coordinating trackers,
 /// force plates, physics calculations, and communication with LabVIEW.
 /// </summary>
-public class RobotController : MonoBehaviour
+public class StarTest_Main : MonoBehaviour
 {
     static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Workloads, "Controller Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
     static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Intervals, "Controller Execution Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
@@ -21,8 +21,6 @@ public class RobotController : MonoBehaviour
     public TrackerManager trackerManager;
     [Tooltip("The ForcePlateManager instance for reading force plate data.")]
     public ForcePlateManager forcePlateManager;
-    [Tooltip("The LabviewTcpCommunicator instance for sending motor commands.")]
-    public LabviewTcpCommunicator tcpCommunicator;
 
     [Header("Visualization")]
     [Tooltip("Handles tracker/camera visuals. Keeps RobotController logic-only.")]
@@ -90,7 +88,6 @@ public class RobotController : MonoBehaviour
         Debug.Log($"RobUST description created: {numCables} cables, AP={chestAPDistance}m, ML={chestMLDistance}m");
 
         // Initialize Modules
-        tcpCommunicator.Initialize();
         if (!trackerManager.Initialize())
         {
             Debug.LogError("Failed to initialize TrackerManager.", this);
@@ -109,11 +106,6 @@ public class RobotController : MonoBehaviour
             return;
         }
 
-        if (isLabviewControlEnabled)
-        {
-            tcpCommunicator.ConnectToServer();
-            tcpCommunicator.SetClosedLoopControl();
-        }
 
         System.Threading.Thread.Sleep(500); // allow tracker thread to go live
         trackerManager.GetFrameTrackerData(out robot_frame_tracker); // import Capture static frame at startup 
@@ -222,9 +214,9 @@ public class RobotController : MonoBehaviour
                     // --- Visualization: MPC Trajectory ---
                     mpcSolver.ComputeOptimalTrajectory(mpc_results);
                     visualizer.PushMpcTrajectory(mpc_results);
-                    visualizer.PushGoalTrajectory(Xref_horizon); // Sync visual horizon
+                    visualizer.PushGoalTrajectory(Xref_horizon);
 
-                    Debug.Log($"mpc tensions: [{string.Join(", ", solver_tensions)}]");
+                    Debug.Log($"mpc tensions: [{string.Join(", ", solver_tensions)}]"); //remove once done tuning mpc
                     
                     trajectoryIndex++;
                     break;
@@ -241,7 +233,6 @@ public class RobotController : MonoBehaviour
                     break;
             }
 
-            tcpCommunicator.UpdateTensionSetpoint(motor_tension_command);
             visualizer.PushState(comPose_RF, eePose_RF, fp0.CoP, fp0.Force, fp1.CoP, fp1.Force);
 
             s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
@@ -261,7 +252,6 @@ public class RobotController : MonoBehaviour
         bool allValid = true;
         if (trackerManager == null) { Debug.LogError("Module not assigned in Inspector: trackerManager", this); allValid = false; }
         if (forcePlateManager == null) { Debug.LogError("Module not assigned in Inspector: forcePlateManager", this); allValid = false; }
-        if (tcpCommunicator == null) { Debug.LogError("Module not assigned in Inspector: tcpCommunicator", this); allValid = false; }
         if (visualizer == null) { Debug.LogError("Visualizer not assigned in Inspector: visualizer", this); allValid = false; }
 
         return allValid;
@@ -272,7 +262,6 @@ public class RobotController : MonoBehaviour
         // Clean shutdown of threaded components.
         // TrackerManager handles its own shutdown via its OnDestroy method.
         isRunning = false;
-        tcpCommunicator?.Disconnect();
     }
 
 
