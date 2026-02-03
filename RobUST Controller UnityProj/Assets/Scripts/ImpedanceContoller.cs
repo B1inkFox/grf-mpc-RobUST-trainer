@@ -9,7 +9,7 @@ using Unity.Mathematics;
 /// </summary>
 public class ImpedanceController : BaseController<Wrench>
 {
-    // Gains (Public for easier access/tuning from the main controller)
+    // Gains (Public for potential gain scheduling from main controller)
     public double3 K_pos;
     public double3 D_pos;
     public double3 K_ori;
@@ -57,7 +57,6 @@ public class ImpedanceController : BaseController<Wrench>
         if (!isStateValid) return new Wrench(double3.zero, double3.zero);
 
         // 1. Position Error (e_p = p_des - p_curr)
-        // ----------------------------------------
         double3 p_curr = currentPose.c3.xyz;
         double3 e_p = targetState.p - p_curr;
         double3 e_v = targetState.v - currentLinVel;
@@ -65,7 +64,6 @@ public class ImpedanceController : BaseController<Wrench>
         double3 ForceCmd = (K_pos * e_p) + (D_pos * e_v);
 
         // 2. Orientation Error (Axis-Angle from Quaternion)
-        // ------------------------------------------------
         // Construct Target Quaternion from Euler ZYX ( Matches MPCSolver convention )
         // R = Rz(psi) * Ry(theta) * Rx(phi)
         quaternion q_z = quaternion.AxisAngle((float3)new double3(0, 0, 1), (float)targetState.th.z);
@@ -94,11 +92,9 @@ public class ImpedanceController : BaseController<Wrench>
         }
 
         double3 e_w = targetState.w - currentAngVel;
-
         double3 TorqueCmd = (K_ori * e_o) + (D_ori * e_w);
 
-        // 3. Safety Clamping
-        // ------------------
+        // Saturation
         if (math.length(ForceCmd) > MaxForce) ForceCmd = math.normalize(ForceCmd) * MaxForce;
         if (math.length(TorqueCmd) > MaxTorque) TorqueCmd = math.normalize(TorqueCmd) * MaxTorque;
 

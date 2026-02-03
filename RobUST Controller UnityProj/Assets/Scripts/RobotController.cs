@@ -51,18 +51,18 @@ public class RobotController : MonoBehaviour
     public float userHeight = 1.5f;
 
     private RobUSTDescription robotDescription;
-    private MPCSolver controller;
+
+    // Controllers
+    private MPCSolver mpcSolver;
     private ImpedanceController impedanceController;
     private CableTensionPlanner tensionPlanner;
+    private TrajectoryPlanner trajectoryPlanner;
+    private long trajectoryIndex = 0;
 
     // Static frame reference captured only at startup to prevent drift
     private TrackerData robot_frame_tracker;
     private Thread controllerThread;
     private volatile bool isRunning = false;
-
-    // Global Reference Trajectory
-    private RBState[] Xref_global;
-    private long trajectoryIndex = 0; // Current index in controlLoop
 
     private void Start()
     {
@@ -73,11 +73,10 @@ public class RobotController : MonoBehaviour
 
         if (!ValidateModules())
         {
-            enabled = false; // Disable this script if modules are missing from inspector
+            enabled = false; 
             return;
         }
 
-        // Validate geometry configuration
         if (chestAPDistance <= 0 || chestMLDistance <= 0)
         {
             Debug.LogError("Chest dimensions must be positive values.", this);
@@ -89,17 +88,6 @@ public class RobotController : MonoBehaviour
         robotDescription = RobUSTDescription.Create(numCables, chestAPDistance, chestMLDistance, 
                                                     userMass, userShoulderWidth, userHeight);
         Debug.Log($"RobUST description created: {numCables} cables, AP={chestAPDistance}m, ML={chestMLDistance}m");
-
-        // Initialize Global Reference Trajectory
-        Xref_global = new RBState[2000]; // 20 seconds buffer
-        // stable standing
-        RBState staticPoint = new RBState(
-            new double3(0.2, 0.75, 0), 
-            new double3(0, 0, math.PI/2), 
-            new double3(0, 0, 0), 
-            new double3(0, 0, 0)
-        );
-        for (int i = 0; i < Xref_global.Length; i++) Xref_global[i] = staticPoint;
 
         // Initialize Modules
         tcpCommunicator.Initialize();
@@ -114,8 +102,6 @@ public class RobotController : MonoBehaviour
             Debug.LogWarning("Failed to initialize ForcePlateManager.", this);
             isForcePlateEnabled = false;
         }
-        
-        trackerManager.GetFrameTrackerData(out robot_frame_tracker); // IMPORTANT snapshot frame tracker
         if (!visualizer.Initialize(robotDescription))
         {
             Debug.LogError("Failed to initialize RobotVisualizer.", this);
@@ -129,10 +115,15 @@ public class RobotController : MonoBehaviour
             tcpCommunicator.SetClosedLoopControl();
         }
 
-        // Finally Initialize Controllers and begin control thread
-        controller = new MPCSolver(robotDescription, 0.05, 10);
+        System.Threading.Thread.Sleep(500); // allow tracker thread to go live
+        trackerManager.GetFrameTrackerData(out robot_frame_tracker); // import Capture static frame at startup 
+
+        // Finally Initialize Controller modules and begin control thread
+        mpcSolver = new MPCSolver(robotDescription, 0.05, 10);
         impedanceController = new ImpedanceController();
         tensionPlanner = new CableTensionPlanner(robotDescription);
+        trajectoryPlanner = new TrajectoryPlanner();
+        
         controllerThread = new Thread(controlLoop)
         {
             Name = "Robot Controller Main",
@@ -151,7 +142,7 @@ public class RobotController : MonoBehaviour
         if (Keyboard.current.oKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.OFF; trajectoryIndex = 0; }
         if (Keyboard.current.tKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
         if (Keyboard.current.mKey.wasPressedThisFrame) { if (isForcePlateEnabled) currentControlMode = CONTROL_MODE.MPC; }
-        if (Keyboard.current.iKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.IMPEDANCE; }
+        if (Keyboard.current.iKey.wasPressedThisFrame) { if (robotDescription.NumCables == 8) currentControlMode = CONTROL_MODE.IMPEDANCE; }
         
     }
 
@@ -164,21 +155,19 @@ public class RobotController : MonoBehaviour
     {
         double ctrl_freq = 100.0;
         Span<double> motor_tension_command = stackalloc double[14];
-        double[] solver_tensions = null;
+        double[] solver_tensions = new double[robotDescription.NumCables];
         double4x4 framePose = ToDouble4x4(robot_frame_tracker.PoseMatrix);
         double4x4 frameInv = math.fastinverse(framePose);
         
         SensorFilter filter_10Hz = new SensorFilter(ctrl_freq, 10.0);
+        Span<RBState> Xref_horizon = stackalloc RBState[10];
+        Span<RBState> mpc_results = stackalloc RBState[10];
 
         double system_frequency = System.Diagnostics.Stopwatch.Frequency;
         double ticksToNs = 1_000_000_000.0 / system_frequency;
         long intervalTicks = (long)(system_frequency / ctrl_freq);
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
         long lastLoopTick = System.Diagnostics.Stopwatch.GetTimestamp();
-
-        Span<RBState> Xref_horizon = stackalloc RBState[10];
-        Span<RBState> mpc_results = stackalloc RBState[10];
-
         while (isRunning)
         {
             long loopStartTick = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -199,39 +188,49 @@ public class RobotController : MonoBehaviour
             ForcePlateData netFPData = new ForcePlateData(netForce, netCoP);
             
             filter_10Hz.Update(comPose_RF, eePose_RF, netFPData);
-            FillXrefHorizon((int)trajectoryIndex, Xref_horizon);
-            Debug.Log($"ee position: {eePose_RF.c3.xyz}");
+            trajectoryPlanner.FillHorizon(trajectoryIndex, Xref_horizon);
             switch (currentControlMode)
             {
                 case CONTROL_MODE.OFF:
                     motor_tension_command.Clear();
                     break;
                 case CONTROL_MODE.TRANSPARENT:
-                    Wrench zeroWrench = new Wrench(double3.zero, double3.zero);
-                    solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, zeroWrench);
-                    MapTensionsToMotors(solver_tensions, motor_tension_command);
+                    switch (robotDescription.NumCables)
+                    {
+                        case 8:
+                            Wrench zeroWrench = new Wrench(double3.zero, double3.zero);
+                            solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, zeroWrench);
+                            MapTensionsToMotors(solver_tensions, motor_tension_command);
+                            break;
+                        case 4:
+                            solver_tensions[0] = 10.0; solver_tensions[1] = 10.0;
+                            solver_tensions[2] = 10.0; solver_tensions[3] = 10.0;
+                            MapTensionsToMotors(solver_tensions, motor_tension_command);
+                            break;
+                    }
                     visualizer.PushGoalTrajectory(Xref_horizon.Slice(0, 1));
                     trajectoryIndex++;
                     break;
                 case CONTROL_MODE.MPC:
                     ForcePlateData filteredFPData = new ForcePlateData(filter_10Hz.FilteredGRF, filter_10Hz.FilteredCoP);
                     
-                    controller.UpdateReferenceTrajectory(Xref_horizon, 0); // Use lookahead buffer directly
-                    controller.UpdateState(eePose_RF, comPose_RF, filter_10Hz.CoMLinearVelocity, filter_10Hz.CoMAngularVelocity, filteredFPData);
-                    solver_tensions = controller.computeNextControl();
+                    mpcSolver.UpdateReferenceTrajectory(Xref_horizon, 0); // Use lookahead buffer directly
+                    mpcSolver.UpdateState(eePose_RF, comPose_RF, filter_10Hz.CoMLinearVelocity, filter_10Hz.CoMAngularVelocity, filteredFPData);
+                    solver_tensions = mpcSolver.computeNextControl();
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
                     
+                    // --- Visualization: MPC Trajectory ---
+                    mpcSolver.ComputeOptimalTrajectory(mpc_results);
+                    visualizer.PushMpcTrajectory(mpc_results);
                     visualizer.PushGoalTrajectory(Xref_horizon); // Sync visual horizon
 
-                    // --- Visualization: MPC Trajectory ---
-                    controller.ComputeOptimalTrajectory(mpc_results);
-                    visualizer.PushMpcTrajectory(mpc_results);
-                    // -------------------------------------
-
+                    Debug.Log($"mpc tensions: [{string.Join(", ", solver_tensions)}]");
+                    
                     trajectoryIndex++;
                     break;
                 case CONTROL_MODE.IMPEDANCE:
-                    RBState target = ComputeEERefFromCoMRef(Xref_horizon[0], comPose_RF, eePose_RF);
+                    // Moved kinematics logic to TrajectoryPlanner
+                    RBState target = TrajectoryPlanner.ComputeEERefFromCoMRef(Xref_horizon[0], comPose_RF, eePose_RF);
 
                     impedanceController.UpdateState(eePose_RF, filter_10Hz.EELinearVelocity, filter_10Hz.EEAngularVelocity, target);
                     Wrench goalWrench = impedanceController.computeNextControl();
@@ -252,54 +251,6 @@ public class RobotController : MonoBehaviour
             long now = System.Diagnostics.Stopwatch.GetTimestamp();
             if (now > nextTargetTime) nextTargetTime = now + intervalTicks; // drift correction
         }
-    }
-
-    /// <summary>
-    /// Computes the corresponding End-Effector reference state from a CoM reference state.
-    /// Uses the current body-frame offset r_local = R_curr^T * (p_ee - p_com)
-    /// and rotates it by the reference orientation to support full rigid body kinematics.
-    /// </summary>
-    private RBState ComputeEERefFromCoMRef(RBState comRefState, double4x4 curr_comPose, double4x4 curr_eePose)
-    {
-        // 1. Calculate constant offset in body frame: r_local = R_com^T * (p_ee - p_com)
-        double3 p_diff_world = curr_eePose.c3.xyz - curr_comPose.c3.xyz;
-        double3x3 R_curr = new double3x3(curr_comPose.c0.xyz, curr_comPose.c1.xyz, curr_comPose.c2.xyz);
-        double3 r_local = math.mul(math.transpose(R_curr), p_diff_world);
-
-        // 2. Compute Rotation Matrix for Reference State (Euler ZYX)
-        double3 th = comRefState.th; // (x:phi, y:theta, z:psi)
-        
-        // Build R_ref = Rz(psi) * Ry(theta) * Rx(phi) manually (Column-Major)
-        double cz = math.cos(th.z), sz = math.sin(th.z);
-        double cy = math.cos(th.y), sy = math.sin(th.y);
-        double cx = math.cos(th.x), sx = math.sin(th.x);
-
-        double3x3 R_z = new double3x3(new double3(cz, sz, 0), new double3(-sz, cz, 0), new double3(0, 0, 1));
-        double3x3 R_y = new double3x3(new double3(cy, 0, -sy), new double3(0, 1, 0), new double3(sy, 0, cy));
-        double3x3 R_x = new double3x3(new double3(1, 0, 0), new double3(0, cx, sx), new double3(0, -sx, cx));
-        
-        double3x3 R_ref = math.mul(R_z, math.mul(R_y, R_x));
-
-        // 3. Compute EE Reference terms
-        double3 r_ref_global = math.mul(R_ref, r_local);
-        
-        return new RBState(
-            comRefState.p + r_ref_global,                          // p_ee_ref
-            comRefState.th,                                        // Orientation (Shared)
-            comRefState.v + math.cross(comRefState.w, r_ref_global), // v_ee_ref = v_com + w x r
-            comRefState.w                                          // Angular Velocity (Shared)
-        );
-    }
-
-    // Local helper (keep near RobotController; same as already used elsewhere)
-    private static double4x4 ToDouble4x4(in Matrix4x4 m)
-    {
-        return new double4x4(
-            m.m00, m.m01, m.m02, m.m03,
-            m.m10, m.m11, m.m12, m.m13,
-            m.m20, m.m21, m.m22, m.m23,
-            m.m30, m.m31, m.m32, m.m33
-        );
     }
 
 
@@ -339,120 +290,15 @@ public class RobotController : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Safely fills the destination span with the lookahead trajectory.
-    /// Uses module-level Xref_global directly. Optimized for Unity.Mathematics.
-    /// </summary>
-    private void FillXrefHorizon(int startIndex, Span<RBState> destination)
+    // Local helper
+    private static double4x4 ToDouble4x4(in Matrix4x4 m)
     {
-        int sourceLen = Xref_global.Length;
-        int destinationLen = destination.Length;
-
-        if (startIndex >= sourceLen)
-        {
-            destination.Fill(Xref_global[sourceLen - 1]);
-            return;
-        }
-
-        int copyCount = math.min(destinationLen, sourceLen - startIndex);
-        Xref_global.AsSpan(startIndex, copyCount).CopyTo(destination);
-
-        if (copyCount < destinationLen)
-            destination.Slice(copyCount).Fill(Xref_global[sourceLen - 1]);
+        return new double4x4(
+            m.m00, m.m01, m.m02, m.m03,
+            m.m10, m.m11, m.m12, m.m13,
+            m.m20, m.m21, m.m22, m.m23,
+            m.m30, m.m31, m.m32, m.m33
+        );
     }
-
-    // private class for recursively filtering sensor data
-    private class SensorFilter
-    {
-        private readonly double dt, alpha;
-        
-        // CoM State
-        private double3 comPositionPrev;
-        private double3x3 R_comPrev;
-        
-        // End Effector State
-        private double3 eePositionPrev;
-        private double3x3 R_eePrev;
-
-        private bool isFirstUpdate = true;
-
-        // outputs
-        public double3 CoMLinearVelocity { get; private set; }
-        public double3 CoMAngularVelocity { get; private set; }
-        
-        public double3 EELinearVelocity { get; private set; }
-        public double3 EEAngularVelocity { get; private set; }
-
-        public double3 FilteredGRF { get; private set; }
-        public double3 FilteredCoP { get; private set; }
-
-        public SensorFilter(double frequency, double cutoffHz)
-        {
-            dt = 1.0 / frequency;
-            double tau = 1.0 / (2.0 * math.PI * cutoffHz);
-            alpha = dt / (tau + dt);
-        }
-
-        public void Update(double4x4 comPose_RF, double4x4 eePose_RF, in ForcePlateData rawForceData)
-        {
-            double3 comPosition = comPose_RF.c3.xyz;
-            double3x3 R_com = new double3x3(comPose_RF.c0.xyz, comPose_RF.c1.xyz, comPose_RF.c2.xyz);
-            
-            double3 eePosition = eePose_RF.c3.xyz;
-            double3x3 R_ee = new double3x3(eePose_RF.c0.xyz, eePose_RF.c1.xyz, eePose_RF.c2.xyz);
-
-            if (isFirstUpdate)
-            {
-                comPositionPrev = comPosition;
-                R_comPrev = R_com;
-                
-                eePositionPrev = eePosition;
-                R_eePrev = R_ee;
-
-                FilteredGRF = rawForceData.Force;
-                FilteredCoP = rawForceData.CoP;
-                isFirstUpdate = false;
-                return;
-            }
-
-            // --- CoM Velocities ---
-            double3 rawCoMLinVel = (comPosition - comPositionPrev) / dt;
-            
-            // Angular velocity from rotation difference: R_diff approx I + skew(omega * dt)
-            double3x3 R_com_diff = math.mul(R_com, math.transpose(R_comPrev));
-            double3 rawCoMAngVel = new double3(
-                R_com_diff.c1.z - R_com_diff.c2.y,
-                R_com_diff.c2.x - R_com_diff.c0.z,
-                R_com_diff.c0.y - R_com_diff.c1.x
-            ) / (2.0 * dt);
-
-            CoMLinearVelocity = (alpha * rawCoMLinVel) + ((1.0 - alpha) * CoMLinearVelocity);
-            CoMAngularVelocity = (alpha * rawCoMAngVel) + ((1.0 - alpha) * CoMAngularVelocity);
-
-            // --- End Effector Velocities ---
-            double3 rawEELinVel = (eePosition - eePositionPrev) / dt;
-            
-            double3x3 R_ee_diff = math.mul(R_ee, math.transpose(R_eePrev));
-            double3 rawEEAngVel = new double3(
-                R_ee_diff.c1.z - R_ee_diff.c2.y,
-                R_ee_diff.c2.x - R_ee_diff.c0.z,
-                R_ee_diff.c0.y - R_ee_diff.c1.x
-            ) / (2.0 * dt);
-
-            EELinearVelocity = (alpha * rawEELinVel) + ((1.0 - alpha) * EELinearVelocity);
-            EEAngularVelocity = (alpha * rawEEAngVel) + ((1.0 - alpha) * EEAngularVelocity);
-
-            // --- Force Plates ---
-            FilteredGRF = (alpha * rawForceData.Force) + ((1.0 - alpha) * FilteredGRF);
-            FilteredCoP = (alpha * rawForceData.CoP) + ((1.0 - alpha) * FilteredCoP);
-
-            // Update Previous States
-            comPositionPrev = comPosition;
-            R_comPrev = R_com;
-            eePositionPrev = eePosition;
-            R_eePrev = R_ee;
-        }
-    }
-    
 
 }
