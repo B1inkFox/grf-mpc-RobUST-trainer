@@ -324,9 +324,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9f616882f0f732a32be958a422cfab9c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  comTrackerSerial: LHR-9C268EA5
-  endEffectorSerial: LHR-69F82D01
-  frameTrackerSerial: LHR-68C045A4
+  comTrackerSerial: LHR-7979CFC9
+  endEffectorSerial: LHR-91CE1F30
+  frameTrackerSerial: LHR-974C0DAB
 --- !u!114 &748268986
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -348,7 +348,7 @@ MonoBehaviour:
   numCables: 4
   chestAPDistance: 0.22
   chestMLDistance: 0.28
-  userMass: 60
+  userMass: 70
   userShoulderWidth: 0.4
   userHeight: 1.62
 --- !u!4 &748268987

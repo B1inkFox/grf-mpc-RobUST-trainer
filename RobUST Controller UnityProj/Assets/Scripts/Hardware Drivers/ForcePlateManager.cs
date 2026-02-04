@@ -127,6 +127,13 @@ public class ForcePlateManager : MonoBehaviour
                 calib.ProjectForce(in rawForce, out finalForce);
                 calib.ProjectPosition(in rawCop, out finalCop);
 
+                // Clamping
+                if (math.lengthsq(finalForce) < 100.0) // 10^2 = 100
+                {
+                    finalForce = double3.zero;
+                    finalCop = double3.zero;
+                }
+
                 ForcePlateData plateData = new ForcePlateData(finalForce, finalCop);
 
                 lock (dataLock)
@@ -159,34 +166,6 @@ public class ForcePlateManager : MonoBehaviour
         }
     }
 
-    public void GetNetForcePlateData(out ForcePlateData netData)
-    {
-        Span<ForcePlateData> snapshot = stackalloc ForcePlateData[numForcePlates];
-        lock (dataLock)
-        {
-            int copyLen = math.min(numForcePlates, forcePlateDataArray.Length);
-            new ReadOnlySpan<ForcePlateData>(forcePlateDataArray, 0, copyLen).CopyTo(snapshot);
-        }
-
-        // Perform computation on local stack data (thread-safe, no lock needed)
-        double3 netForce = double3.zero;
-        double3 weightedCoPSum = double3.zero;
-        double totalVerticalForce = 0.0;
-
-        for (int i = 0; i < numForcePlates; i++)
-        {
-            ref var plate = ref snapshot[i];
-            netForce += plate.Force;
-
-            // Weight CoP by vertical force (Z-axis)
-            double fz = math.abs(plate.Force.z);
-            weightedCoPSum += plate.CoP * fz;
-            totalVerticalForce += fz;
-        }
-
-        double3 netCoP = totalVerticalForce > 1e-3 ? weightedCoPSum / totalVerticalForce : double3.zero;
-        netData = new ForcePlateData(netForce, netCoP);
-    }  
 
     /// <summary>
     /// Clean up resources on application quit

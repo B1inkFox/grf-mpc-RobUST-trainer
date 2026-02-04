@@ -261,18 +261,13 @@ public class MPCSolver : BaseController<double[]>
         // Calculate constant disturbance vector 'd' (Gravity + GRF + Coriolis)
         // From Image: d_g = [0, 0, g + 1/m*f_grf, I_inv(...)]
         
-        // Linear acceleration part: g + F_grf / m
-        double3 d_vel = g_vec + (netGRF / robot.UserMass);
+        // Linear acceleration part: (g + F_grf / m) * dt
+        double3 d_vel = (g_vec + (netGRF / robot.UserMass)) * dt;
         
-        // Angular acceleration part: I_inv * ( Torque_grf - w x Iw )
-        // Torque_grf = (p_cop - p_0) x f_grf
+        // Angular acceleration part: I_inv * ( Torque_grf ) * dt
         double3 r_cop = netCoP - x0.p; 
         double3 tau_grf = math.cross(r_cop, netGRF);
-        double3 d_ang = math.mul(I_world_inv, tau_grf);
-
-        // Scale by dt for discrete form
-        d_vel *= dt;
-        d_ang *= dt;
+        double3 d_ang = math.mul(I_world_inv, tau_grf) * dt;
 
         // 1. Forward Pass: "Free Response" Simulation
         // ---------------------------------------------------------
@@ -405,7 +400,7 @@ public class MPCSolver : BaseController<double[]>
     {
         // Re-calculate constant disturbance terms locally 
         // (Must match BuildLinearCost logic exactly)
-        double3 d_vel = dt * g_vec + (netGRF / robot.UserMass);
+        double3 d_vel = dt * (g_vec + (netGRF / robot.UserMass));
         
         double3 r_cop = netCoP - x0.p; 
         double3 tau_grf = math.cross(r_cop, netGRF);

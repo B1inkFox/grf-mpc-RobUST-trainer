@@ -85,22 +85,20 @@ public class RobotVisualizer : MonoBehaviour
     /// <summary>
     /// Updated API: Accepts double4x4 directly.
     /// </summary>
-    public void PushState(
-        in double4x4 comPose, 
-        in double4x4 eePose,
-        in double3 cop0, in double3 grf0,
-        in double3 cop1, in double3 grf1)
+    public void PushState(in double4x4 comPose, in double4x4 eePose, in ForcePlateData fp0, in ForcePlateData fp1)
     {
         lock (dataLock)
         {
             _comPose_Robot = comPose;
             _eePose_Robot = eePose;
-            _cop0_Robot = cop0;
-            _grf0_Robot = grf0;
-            _cop1_Robot = cop1;
-            _grf1_Robot = grf1;
+            _cop0_Robot = fp0.CoP;
+            _grf0_Robot = fp0.Force;
+            _cop1_Robot = fp1.CoP;
+            _grf1_Robot = fp1.Force;
         }
     }
+
+
 
     /// <summary>
     /// Pushes a goal trajectory to the visualizer.

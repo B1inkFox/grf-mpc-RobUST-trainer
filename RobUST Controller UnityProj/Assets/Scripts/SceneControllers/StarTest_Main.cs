@@ -13,30 +13,18 @@ using System.Threading;
 /// </summary>
 public class StarTest_Main : MonoBehaviour
 {
-    static readonly ProfilerCounterValue<long> s_WorkloadNs = new(RobotProfiler.Workloads, "Controller Workload", ProfilerMarkerDataUnit.TimeNanoseconds);
-    static readonly ProfilerCounterValue<long> s_IntervalNs = new(RobotProfiler.Intervals, "Controller Execution Interval", ProfilerMarkerDataUnit.TimeNanoseconds);
-
+    #region Inspector Assigned Modules
     [Header("Module References")]
     [Tooltip("The TrackerManager instance that provides tracker data.")]
     public TrackerManager trackerManager;
     [Tooltip("The ForcePlateManager instance for reading force plate data.")]
     public ForcePlateManager forcePlateManager;
-
-    [Header("Visualization")]
     [Tooltip("Handles tracker/camera visuals. Keeps RobotController logic-only.")]
     public RobotVisualizer visualizer;
+    #endregion
 
-    [Header("Control Settings")]
-    [Tooltip("Enable or disable sending commands to LabVIEW.")]
-    public bool isLabviewControlEnabled = true;
-    private bool isForcePlateEnabled = true;
-
-    public enum CONTROL_MODE { OFF, TRANSPARENT, MPC, IMPEDANCE }
-    public volatile CONTROL_MODE currentControlMode = CONTROL_MODE.OFF;
-
-    [Header("Robot Geometry Configuration")]
-    [Tooltip("Number of cables in the system. We currently support 8 or 4 cables")]
-    public int numCables = 8;
+    #region User Configuration
+    [Header("User Geometry Configuration")]
     [Tooltip("Measured thickness of the chest in the anterior-posterior direction [m].")]
     public float chestAPDistance = 0.2f;
     [Tooltip("Measured width of the chest in the medial-lateral direction [m].")]
@@ -47,20 +35,30 @@ public class StarTest_Main : MonoBehaviour
     public float userShoulderWidth = 0.4f;
     [Tooltip("User height (feet to head) [m].")]
     public float userHeight = 1.5f;
+    #endregion
 
-    private RobUSTDescription robotDescription;
+    #region State Definitions
+    public enum STAR_STATE 
+    { 
+        OFF, 
+        FORWARD, 
+        BACKWARD, 
+        LEFT, 
+        RIGHT 
+    }
+    public volatile STAR_STATE currState = STAR_STATE.OFF;
+    #endregion
 
-    // Controllers
-    private MPCSolver mpcSolver;
-    private ImpedanceController impedanceController;
-    private CableTensionPlanner tensionPlanner;
-    private TrajectoryPlanner trajectoryPlanner;
-    private long trajectoryIndex = 0;
-
-    // Static frame reference captured only at startup to prevent drift
-    private TrackerData robot_frame_tracker;
-    private Thread controllerThread;
+    #region Flags
+    private bool isForcePlateEnabled = true;
     private volatile bool isRunning = false;
+    #endregion
+
+    #region Internal Data & Frames
+    private RobUSTDescription robotDescription;
+    private double4x4 raw_robotFrame_pose;
+    private double4x4 robotFrame_inv;
+    #endregion
 
     private void Start()
     {
@@ -68,6 +66,7 @@ public class StarTest_Main : MonoBehaviour
         {
             p.PriorityClass = System.Diagnostics.ProcessPriorityClass.High;
         }
+        robotDescription = RobUSTDescription.Create(8, chestAPDistance, chestMLDistance, userMass, userShoulderWidth, userHeight);
 
         if (!ValidateModules())
         {
@@ -81,11 +80,6 @@ public class StarTest_Main : MonoBehaviour
             enabled = false;
             return;
         }
-
-        // Create RobUST description (single allocation at startup)
-        robotDescription = RobUSTDescription.Create(numCables, chestAPDistance, chestMLDistance, 
-                                                    userMass, userShoulderWidth, userHeight);
-        Debug.Log($"RobUST description created: {numCables} cables, AP={chestAPDistance}m, ML={chestMLDistance}m");
 
         // Initialize Modules
         if (!trackerManager.Initialize())
@@ -106,144 +100,29 @@ public class StarTest_Main : MonoBehaviour
             return;
         }
 
-
         System.Threading.Thread.Sleep(500); // allow tracker thread to go live
-        trackerManager.GetFrameTrackerData(out robot_frame_tracker); // import Capture static frame at startup 
-
-        // Finally Initialize Controller modules and begin control thread
-        mpcSolver = new MPCSolver(robotDescription, 0.05, 10);
-        impedanceController = new ImpedanceController();
-        tensionPlanner = new CableTensionPlanner(robotDescription);
-        trajectoryPlanner = new TrajectoryPlanner();
-        
-        controllerThread = new Thread(controlLoop)
-        {
-            Name = "Robot Controller Main",
-            IsBackground = true,
-            Priority = System.Threading.ThreadPriority.AboveNormal
-        };
+        trackerManager.GetFrameTrackerData(out TrackerData robot_frame_tracker); // import Capture static frame at startup 
+        raw_robotFrame_pose = ToDouble4x4(robot_frame_tracker.PoseMatrix);
+        robotFrame_inv = math.fastinverse(raw_robotFrame_pose);
 
         isRunning = true;
-        controllerThread.Start();
     }
 
     private void Update()
     {
-        if (Keyboard.current == null) return;
+        // get poses in RF
+        trackerManager.GetCoMTrackerData(out TrackerData raw_comTrackerData);
+        trackerManager.GetEndEffectorTrackerData(out TrackerData raw_eeTrackerData);
+        double4x4 comPose_RF = math.mul(robotFrame_inv, ToDouble4x4(raw_comTrackerData.PoseMatrix));
+        double4x4 eePose_RF = math.mul(robotFrame_inv, ToDouble4x4(raw_eeTrackerData.PoseMatrix));
+        // get force plate data (already in RF)
+        forcePlateManager.GetForcePlateData(0, out ForcePlateData fp0);
+        forcePlateManager.GetForcePlateData(1, out ForcePlateData fp1);
+        // implement star test logic
 
-        if (Keyboard.current.oKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.OFF; trajectoryIndex = 0; }
-        if (Keyboard.current.tKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
-        if (Keyboard.current.mKey.wasPressedThisFrame) { if (isForcePlateEnabled) currentControlMode = CONTROL_MODE.MPC; }
-        if (Keyboard.current.iKey.wasPressedThisFrame) { if (robotDescription.NumCables == 8) currentControlMode = CONTROL_MODE.IMPEDANCE; }
-        
+        // send to visualizer
+        visualizer.PushState(comPose_RF, eePose_RF, fp0, fp1);
     }
-
-    /// <summary>
-    ///  This control loop is the main "driver" of one or more `Controller` instances. 
-    ///  It needs to grab the latest tracker data, update visuals, compute cable tensions, and send commands to LabVIEW.
-    ///  a `Controller` functions more like a `Control Policy/Solver` here, with RobotController managing the data flow.
-    /// </summary>
-    private void controlLoop()
-    {
-        double ctrl_freq = 100.0;
-        Span<double> motor_tension_command = stackalloc double[14];
-        double[] solver_tensions = new double[robotDescription.NumCables];
-        double4x4 framePose = ToDouble4x4(robot_frame_tracker.PoseMatrix);
-        double4x4 frameInv = math.fastinverse(framePose);
-        
-        SensorFilter filter_10Hz = new SensorFilter(ctrl_freq, 10.0);
-        Span<RBState> Xref_horizon = stackalloc RBState[10];
-        Span<RBState> mpc_results = stackalloc RBState[10];
-
-        double system_frequency = System.Diagnostics.Stopwatch.Frequency;
-        double ticksToNs = 1_000_000_000.0 / system_frequency;
-        long intervalTicks = (long)(system_frequency / ctrl_freq);
-        long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
-        long lastLoopTick = System.Diagnostics.Stopwatch.GetTimestamp();
-        while (isRunning)
-        {
-            long loopStartTick = System.Diagnostics.Stopwatch.GetTimestamp();
-            s_IntervalNs.Value = (long)((loopStartTick - lastLoopTick) * ticksToNs);
-            lastLoopTick = loopStartTick;
-
-            trackerManager.GetEndEffectorTrackerData(out TrackerData rawEndEffectorData);
-            trackerManager.GetCoMTrackerData(out TrackerData rawComData);
-            double4x4 eePose_RF = math.mul(frameInv, ToDouble4x4(rawEndEffectorData.PoseMatrix));
-            double4x4 comPose_RF = math.mul(frameInv, ToDouble4x4(rawComData.PoseMatrix));
-
-            forcePlateManager.GetForcePlateData(0, out ForcePlateData fp0);
-            forcePlateManager.GetForcePlateData(1, out ForcePlateData fp1);
-            double3 netForce = fp0.Force + fp1.Force;
-            double3 netCoP = double3.zero;
-            if (math.abs(netForce.z) > 1e-3) // Handle division by zero
-                netCoP = (fp0.CoP * fp0.Force.z + fp1.CoP * fp1.Force.z) / netForce.z;
-            ForcePlateData netFPData = new ForcePlateData(netForce, netCoP);
-            
-            filter_10Hz.Update(comPose_RF, eePose_RF, netFPData);
-            trajectoryPlanner.FillHorizon(trajectoryIndex, Xref_horizon);
-            switch (currentControlMode)
-            {
-                case CONTROL_MODE.OFF:
-                    motor_tension_command.Clear();
-                    break;
-                case CONTROL_MODE.TRANSPARENT:
-                    switch (robotDescription.NumCables)
-                    {
-                        case 8:
-                            Wrench zeroWrench = new Wrench(double3.zero, double3.zero);
-                            solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, zeroWrench);
-                            MapTensionsToMotors(solver_tensions, motor_tension_command);
-                            break;
-                        case 4:
-                            solver_tensions[0] = 10.0; solver_tensions[1] = 10.0;
-                            solver_tensions[2] = 10.0; solver_tensions[3] = 10.0;
-                            MapTensionsToMotors(solver_tensions, motor_tension_command);
-                            break;
-                    }
-                    visualizer.PushGoalTrajectory(Xref_horizon.Slice(0, 1));
-                    trajectoryIndex++;
-                    break;
-                case CONTROL_MODE.MPC:
-                    ForcePlateData filteredFPData = new ForcePlateData(filter_10Hz.FilteredGRF, filter_10Hz.FilteredCoP);
-                    
-                    mpcSolver.UpdateReferenceTrajectory(Xref_horizon, 0); // Use lookahead buffer directly
-                    mpcSolver.UpdateState(eePose_RF, comPose_RF, filter_10Hz.CoMLinearVelocity, filter_10Hz.CoMAngularVelocity, filteredFPData);
-                    solver_tensions = mpcSolver.computeNextControl();
-                    MapTensionsToMotors(solver_tensions, motor_tension_command);
-                    
-                    // --- Visualization: MPC Trajectory ---
-                    mpcSolver.ComputeOptimalTrajectory(mpc_results);
-                    visualizer.PushMpcTrajectory(mpc_results);
-                    visualizer.PushGoalTrajectory(Xref_horizon);
-
-                    Debug.Log($"mpc tensions: [{string.Join(", ", solver_tensions)}]"); //remove once done tuning mpc
-                    
-                    trajectoryIndex++;
-                    break;
-                case CONTROL_MODE.IMPEDANCE:
-                    // Moved kinematics logic to TrajectoryPlanner
-                    RBState target = TrajectoryPlanner.ComputeEERefFromCoMRef(Xref_horizon[0], comPose_RF, eePose_RF);
-
-                    impedanceController.UpdateState(eePose_RF, filter_10Hz.EELinearVelocity, filter_10Hz.EEAngularVelocity, target);
-                    Wrench goalWrench = impedanceController.computeNextControl();
-                    solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, goalWrench);
-                    MapTensionsToMotors(solver_tensions, motor_tension_command);
-                    visualizer.PushGoalTrajectory(Xref_horizon.Slice(0, 1));
-                    trajectoryIndex++;
-                    break;
-            }
-
-            visualizer.PushState(comPose_RF, eePose_RF, fp0.CoP, fp0.Force, fp1.CoP, fp1.Force);
-
-            s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
-            while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime) { } // BURN wait
-
-            nextTargetTime += intervalTicks;
-            long now = System.Diagnostics.Stopwatch.GetTimestamp();
-            if (now > nextTargetTime) nextTargetTime = now + intervalTicks; // drift correction
-        }
-    }
-
 
     // Validates that all required module references are assigned in the Inspector.
     // returns True if all modules are assigned, false otherwise.
@@ -262,21 +141,6 @@ public class StarTest_Main : MonoBehaviour
         // Clean shutdown of threaded components.
         // TrackerManager handles its own shutdown via its OnDestroy method.
         isRunning = false;
-    }
-
-
-    /// <summary>
-    /// Maps solver tensions to the 14-motor driver array using the active configuration.
-    /// </summary>
-    private void MapTensionsToMotors(double[] solverResult, Span<double> output)
-    {
-        output.Clear();
-        int count = robotDescription.SolverToMotorMap.Length;
-        for (int i = 0; i < count; i++)
-        {
-            int motorIndex = robotDescription.SolverToMotorMap[i];
-            output[motorIndex] = solverResult[i];
-        }
     }
 
     // Local helper
