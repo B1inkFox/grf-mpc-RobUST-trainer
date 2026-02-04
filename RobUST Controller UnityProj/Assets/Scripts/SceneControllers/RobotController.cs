@@ -178,7 +178,7 @@ public class RobotController : MonoBehaviour
             trackerManager.GetCoMTrackerData(out TrackerData rawComData);
             double4x4 eePose_RF = math.mul(frameInv, ToDouble4x4(rawEndEffectorData.PoseMatrix));
             double4x4 comPose_RF = math.mul(frameInv, ToDouble4x4(rawComData.PoseMatrix));
-
+            // FP already in robot frame
             forcePlateManager.GetForcePlateData(0, out ForcePlateData fp0);
             forcePlateManager.GetForcePlateData(1, out ForcePlateData fp1);
             double3 netForce = fp0.Force + fp1.Force;
@@ -222,9 +222,9 @@ public class RobotController : MonoBehaviour
                     // --- Visualization: MPC Trajectory ---
                     mpcSolver.ComputeOptimalTrajectory(mpc_results);
                     visualizer.PushMpcTrajectory(mpc_results);
-                    visualizer.PushGoalTrajectory(Xref_horizon); // Sync visual horizon
+                    visualizer.PushGoalTrajectory(Xref_horizon);
 
-                    Debug.Log($"mpc tensions: [{string.Join(", ", solver_tensions)}]");
+                    Debug.Log($"mpc tensions: [{string.Join(", ", solver_tensions)}]"); //remove once done tuning mpc
                     
                     trajectoryIndex++;
                     break;
@@ -242,7 +242,7 @@ public class RobotController : MonoBehaviour
             }
 
             tcpCommunicator.UpdateTensionSetpoint(motor_tension_command);
-            visualizer.PushState(comPose_RF, eePose_RF, fp0.CoP, fp0.Force, fp1.CoP, fp1.Force);
+            visualizer.PushState(comPose_RF, eePose_RF, fp0, fp1);
 
             s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
             while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime) { } // BURN wait

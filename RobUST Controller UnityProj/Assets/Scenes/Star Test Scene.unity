@@ -286,32 +286,17 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 748268987}
-  - component: {fileID: 748268986}
+  - component: {fileID: 748268991}
   - component: {fileID: 748268985}
-  - component: {fileID: 748268983}
   - component: {fileID: 748268990}
   - component: {fileID: 748268989}
   m_Layer: 0
-  m_Name: RobotSystem
+  m_Name: Star_Test_main
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &748268983
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 748268981}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 7629282ce52ba628e8fa4e5843826c26, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  serverAddress: 10.0.0.62
-  serverPort: 8053
 --- !u!114 &748268985
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -327,30 +312,6 @@ MonoBehaviour:
   comTrackerSerial: LHR-7979CFC9
   endEffectorSerial: LHR-91CE1F30
   frameTrackerSerial: LHR-974C0DAB
---- !u!114 &748268986
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 748268981}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 1af9104bd333e2369887613c7df62c09, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  trackerManager: {fileID: 748268985}
-  forcePlateManager: {fileID: 748268990}
-  tcpCommunicator: {fileID: 748268983}
-  visualizer: {fileID: 748268989}
-  isLabviewControlEnabled: 0
-  currentControlMode: 0
-  numCables: 4
-  chestAPDistance: 0.22
-  chestMLDistance: 0.28
-  userMass: 70
-  userShoulderWidth: 0.4
-  userHeight: 1.62
 --- !u!4 &748268987
 Transform:
   m_ObjectHideFlags: 0
@@ -383,7 +344,7 @@ MonoBehaviour:
   endEffectorVisual: {fileID: 292712651}
   frameTrackerVisual: {fileID: 717259972}
   visualizationCamera: {fileID: 1682237651}
-  camPos_RobotFrame: {x: 1, y: 3, z: 0.7}
+  camPos_RobotFrame: {x: 0, y: 0.8, z: 3}
 --- !u!114 &748268990
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -397,6 +358,27 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   numForcePlates: 2
+--- !u!114 &748268991
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 748268981}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 048adace97570ac45831df36962f1782, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  trackerManager: {fileID: 748268985}
+  forcePlateManager: {fileID: 748268990}
+  visualizer: {fileID: 748268989}
+  chestAPDistance: 0.2
+  chestMLDistance: 0.3
+  userMass: 70
+  userShoulderWidth: 0.4
+  userHeight: 1.5
+  currState: 0
 --- !u!1001 &1586278569
 PrefabInstance:
   m_ObjectHideFlags: 0
