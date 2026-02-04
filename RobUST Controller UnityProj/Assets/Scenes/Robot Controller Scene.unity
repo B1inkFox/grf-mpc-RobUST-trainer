@@ -343,12 +343,12 @@ MonoBehaviour:
   forcePlateManager: {fileID: 748268990}
   tcpCommunicator: {fileID: 748268983}
   visualizer: {fileID: 748268989}
-  isLabviewControlEnabled: 0
+  isLabviewControlEnabled: 1
   currentControlMode: 0
   numCables: 4
   chestAPDistance: 0.22
   chestMLDistance: 0.28
-  userMass: 70
+  userMass: 59
   userShoulderWidth: 0.4
   userHeight: 1.62
 --- !u!4 &748268987
