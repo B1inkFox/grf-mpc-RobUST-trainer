@@ -223,8 +223,6 @@ public class RobotController : MonoBehaviour
                     mpcSolver.ComputeOptimalTrajectory(mpc_results);
                     visualizer.PushMpcTrajectory(mpc_results);
                     visualizer.PushGoalTrajectory(Xref_horizon);
-
-                    Debug.Log($"mpc tensions: [{string.Join(", ", solver_tensions)}]"); //remove once done tuning mpc
                     
                     trajectoryIndex++;
                     break;

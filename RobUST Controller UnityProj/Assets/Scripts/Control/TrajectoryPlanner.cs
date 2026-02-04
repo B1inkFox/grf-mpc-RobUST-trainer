@@ -11,7 +11,7 @@ public class TrajectoryPlanner
         Xref_global = new RBState[2000]; // 20 seconds buffer
         // stable standing
         RBState staticPoint = new RBState(
-            new double3(0.2, 0.75, 0), 
+            new double3(0.2, 0.75, -0.1), 
             new double3(0, 0, math.PI/2), 
             new double3(0, 0, 0), 
             new double3(0, 0, 0)

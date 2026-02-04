@@ -36,7 +36,7 @@ public class MPCSolver : BaseController<double[]>
     private double3x3 E_Theta;          // E(Θ): angular velocity to euler rates
 
     // MPC weights (public setters for gain scheduling)
-    public double3 Q_pos { get; set; } = new double3(500.0, 500.0, 500.0);
+    public double3 Q_pos { get; set; } = new double3(500.0, 500.0, 100.0);
     public double3 Q_Theta { get; set; } = new double3(0.001, 0.001, 0.001);
     public double3 Q_vel { get; set; } = new double3(50.0, 50.0, 50.0);
     public double3 Q_omega { get; set; } = new double3(0.001, 0.001, 0.001);
@@ -257,10 +257,7 @@ public class MPCSolver : BaseController<double[]>
     private void BuildLinearCost()
     {
         // 0. Setup Dynamics Terms (Ad, Bd, d) derived from x0
-        // ---------------------------------------------------------
-        // Calculate constant disturbance vector 'd' (Gravity + GRF + Coriolis)
-        // From Image: d_g = [0, 0, g + 1/m*f_grf, I_inv(...)]
-        
+        // ---------------------------------------------------------        
         // Linear acceleration part: (g + F_grf / m) * dt
         double3 d_vel = (g_vec + (netGRF / robot.UserMass)) * dt;
         
@@ -278,10 +275,6 @@ public class MPCSolver : BaseController<double[]>
         for (int k = 0; k < horizon; k++)
         {
             // --- Apply Discrete Dynamics (Ad * x + d) ---
-            // Position: p_{k+1} = p_k + v_k * dt
-            // Orientation: th_{k+1} = th_k + E(th_0) * w_k * dt
-            // Velocity: v_{k+1} = v_k + d_vel
-            // Angular Velocity: w_{k+1} = w_k + d_ang
             x_pred.p += x_pred.v * dt;
             x_pred.th += math.mul(E_Theta, x_pred.w) * dt;
             x_pred.v += d_vel;
