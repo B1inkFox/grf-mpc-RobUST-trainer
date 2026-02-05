@@ -51,6 +51,8 @@ public class RobotVisualizer : MonoBehaviour
     private double3[] _goalTrajectoryCache = new double3[GoalTrajSteps];
     private double3[] _mpcTrajectoryCache = new double3[GoalTrajSteps];
 
+    private const double3 defaultTrajectory = new double3(0f, -20f, 0f);
+
     public bool Initialize(RobUSTDescription robotDescription)
     {
         // Validation
@@ -121,9 +123,11 @@ public class RobotVisualizer : MonoBehaviour
             // 2. Clamp remaining if short trajectory
             if (len < GoalTrajSteps)
             {
-                double3 lastP = trajectory[len - 1].p;
                 for (int i = len; i < GoalTrajSteps; i++)
-                    _goalTrajectoryCache[i] = lastP;
+                {
+                    offset =  new double3(i*0.01f, i*0.01f, i*0.01f);
+                    _goalTrajectoryCache[i] = defaultTrajectory + offset; //placing out of scene               
+                }
             }
         }
     }
@@ -146,9 +150,11 @@ public class RobotVisualizer : MonoBehaviour
 
             if (len < GoalTrajSteps)
             {
-                double3 lastP = trajectory[len - 1].p;
                 for (int i = len; i < GoalTrajSteps; i++)
-                    _mpcTrajectoryCache[i] = lastP;
+                {
+                    offset =  new double3(i*0.01f, i*0.01f, i*0.01f);
+                    _goalTrajectoryCache[i] = defaultTrajectory + offset; //placing out of scene                   
+                }
             }
         }
     }
