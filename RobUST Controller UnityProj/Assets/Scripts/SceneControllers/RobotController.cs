@@ -50,6 +50,13 @@ public class RobotController : MonoBehaviour
     [Tooltip("User height (feet to head) [m].")]
     public float userHeight = 1.5f;
 
+    [Header("Data Logging")]
+    [Tooltip("Check this to record data to RAM. It will be saved to disk on Stop.")]
+    public volatile bool isLogging = false;
+    [Tooltip("Name of the experiment session for the log file.")]
+    public string sessionName = "Experiment";
+    private DataLogger dataLogger;
+
     private RobUSTDescription robotDescription;
 
     // Controllers
@@ -108,12 +115,12 @@ public class RobotController : MonoBehaviour
             enabled = false;
             return;
         }
-
         if (isLabviewControlEnabled)
         {
             tcpCommunicator.ConnectToServer();
             tcpCommunicator.SetClosedLoopControl();
         }
+        dataLogger = new DataLogger(60, 100);
 
         System.Threading.Thread.Sleep(500); // allow tracker thread to go live
         trackerManager.GetFrameTrackerData(out robot_frame_tracker); // import Capture static frame at startup 
@@ -193,6 +200,7 @@ public class RobotController : MonoBehaviour
             {
                 case CONTROL_MODE.OFF:
                     motor_tension_command.Clear();
+                    Array.Clear(solver_tensions, 0, solver_tensions.Length);
                     break;
                 case CONTROL_MODE.TRANSPARENT:
                     switch (robotDescription.NumCables)
@@ -241,6 +249,11 @@ public class RobotController : MonoBehaviour
 
             tcpCommunicator.UpdateTensionSetpoint(motor_tension_command);
             visualizer.PushState(comPose_RF, eePose_RF, fp0, fp1);
+            if (isLogging)
+            {
+                Wrench goalWrench = tensionPlanner.CalculateResultantWrench(eePose_RF, solver_tensions);
+                dataLogger.Log(loopStartTick, comPose_RF, eePose_RF, fp0, fp1, goalWrench, Xref_horizon[0]);
+            }
 
             s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
             while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime) { } // BURN wait
@@ -271,6 +284,8 @@ public class RobotController : MonoBehaviour
         // TrackerManager handles its own shutdown via its OnDestroy method.
         isRunning = false;
         tcpCommunicator?.Disconnect();
+        if (dataLogger != null && dataLogger.FrameCount > 0)
+            dataLogger.WriteToDisk(sessionName);
     }
 
 
