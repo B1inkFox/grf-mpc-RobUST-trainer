@@ -156,6 +156,48 @@ public class CableTensionPlanner
         return tensions;
     }
 
+    /// <summary>
+    /// Calculates the resultant wrench (force and torque) that would be applied to the end-effector
+    /// given a specific set of cable tensions. Effectivley performs W_resultant = S * T.
+    /// </summary>
+    /// <param name="eeInRobotFrame">The 4x4 pose matrix of the End-Effector in Robot Frame.</param>
+    /// <param name="solver_tensions">The array of cable tension values.</param>
+    /// <returns>The calculated resultant Wrench.</returns>
+    public Wrench CalculateResultantWrench(double4x4 eeInRobotFrame, double[] solver_tensions)
+    {
+        int numCables = robot.NumCables;
+        double3 resultantForce = double3(0, 0, 0);
+        double3 resultantTorque = double3(0, 0, 0);
+
+        // Iterate over each cable to sum up forces and torques
+        for (int i = 0; i < numCables; i++)
+        {
+            double tension = solver_tensions[i];
+
+            // 1. Transform attachment point to robot frame
+            double3 attachLocal = robot.LocalAttachmentPoints[i];
+            double3 attachRobotFrame = TransformPoint(eeInRobotFrame, attachLocal);
+
+            // 2. Calculate cable unit direction vector u_i (pulley -> attachment)
+            double3 cableVec = robot.FramePulleyPositions[i] - attachRobotFrame;
+            double3 u_i = normalize(cableVec);
+
+            // 3. Force Contribution: F_i = T_i * u_i
+            double3 force_i = u_i * tension;
+            resultantForce += force_i;
+
+            // 4. Calculate torque arm: r = attachment - BeltCenter (in global frame)
+            double3 r_local = attachLocal - robot.BeltCenter_EE_Frame;
+            double3 r_robotFrame = TransformVector(eeInRobotFrame, r_local); // vector rotation only
+
+            // 5. Torque Contribution: Tau_i = r x F_i
+            double3 torque_i = cross(r_robotFrame, force_i);
+            resultantTorque += torque_i;
+        }
+
+        return new Wrench(resultantForce, resultantTorque);
+    }
+
 
     // ============ Unity.Mathematics Helpers (SIMD) ============
 

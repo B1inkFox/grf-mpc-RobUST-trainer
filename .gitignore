@@ -8,6 +8,7 @@
 /RobUST Controller UnityProj/[Uu]ser[Ss]ettings/
 /RobUST Controller UnityProj/*.log
 /RobUST Controller UnityProj OLD/
+/RobUST Controller UnityProj/[Ee]xperiment[Ll]ogs/
 
 # By default, Unity supports Blender asset imports, *.blend1 blender files do not need to be committed to version control.
 *.blend1
