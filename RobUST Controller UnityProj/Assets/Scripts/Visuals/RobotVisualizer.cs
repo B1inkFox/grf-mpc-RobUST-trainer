@@ -125,7 +125,7 @@ public class RobotVisualizer : MonoBehaviour
             {
                 for (int i = len; i < GoalTrajSteps; i++)
                 {
-                    offset =  new double3(i*0.01f, i*0.01f, i*0.01f);
+                    double3 offset =  new double3(i*0.01f, i*0.01f, i*0.01f);
                     _goalTrajectoryCache[i] = defaultTrajectory + offset; //placing out of scene               
                 }
             }
@@ -152,7 +152,7 @@ public class RobotVisualizer : MonoBehaviour
             {
                 for (int i = len; i < GoalTrajSteps; i++)
                 {
-                    offset =  new double3(i*0.01f, i*0.01f, i*0.01f);
+                    double3 offset =  new double3(i*0.01f, i*0.01f, i*0.01f);
                     _goalTrajectoryCache[i] = defaultTrajectory + offset; //placing out of scene                   
                 }
             }
