@@ -22,10 +22,34 @@ public class TrajectoryPlanner
 
     public TrajectoryPlanner()
     {
+        // // 1. Initialize Stable Standing (Permanent Buffer)
+        // Xref_stable = new RBState[1]; // fill horizon handles 
+        // RBState staticPoint = new RBState(
+        //     new double3(0.2, 0.8, -0.1), 
+        //     new double3(0, 0, -math.PI/2), 
+        //     new double3(0, 0, 0), 
+        //     new double3(0, 0, 0)
+        // );
+        // for (int i = 0; i < Xref_stable.Length; i++) Xref_stable[i] = staticPoint;
+
+        // // 2. Initialize a default Linear Path (e.g., swaying)
+        // // Define waypoints relative to the static point
+        // Span<RBState> waypoints = stackalloc RBState[]
+        // {
+        //     staticPoint,
+        //     staticPoint, // Start at center
+        //     new RBState(new double3(0.58, 0.58, -0.1), staticPoint.th, double3.zero, double3.zero),
+        //     new RBState(new double3(0.2, 0.8, -0.2), staticPoint.th, double3.zero, double3.zero),
+        //     new RBState(new double3(0.2, 0.8, -0.2), staticPoint.th, double3.zero, double3.zero),
+        //     new RBState(new double3(0.2, 0.8, -0.2), staticPoint.th, double3.zero, double3.zero),
+        //     new RBState(new double3(0.58, 0.58, -0.1), staticPoint.th, double3.zero, double3.zero),
+        //     staticPoint // Back to center
+        // };
+
         // 1. Initialize Stable Standing (Permanent Buffer)
         Xref_stable = new RBState[1]; // fill horizon handles 
         RBState staticPoint = new RBState(
-            new double3(0.2, 0.75, -0.1), 
+            new double3(0.2, 0.8, 0.0), 
             new double3(0, 0, -math.PI/2), 
             new double3(0, 0, 0), 
             new double3(0, 0, 0)
@@ -36,13 +60,16 @@ public class TrajectoryPlanner
         // Define waypoints relative to the static point
         Span<RBState> waypoints = stackalloc RBState[]
         {
+            staticPoint,
             staticPoint, // Start at center
-            new RBState(new double3( 0.4, 0.6, -0.1), staticPoint.th, double3.zero, double3.zero), // Right
-            new RBState(new double3(-0.3, 1, -0.1), staticPoint.th, double3.zero, double3.zero), // Left
+            new RBState(new double3(0.58, 0.58, 0.0), staticPoint.th, double3.zero, double3.zero),
+            new RBState(new double3(0.2, 0.8, -0.1), staticPoint.th, double3.zero, double3.zero),
+            new RBState(new double3(0.2, 0.8, -0.1), staticPoint.th, double3.zero, double3.zero),
+            new RBState(new double3(0.2, 0.8, -0.1), staticPoint.th, double3.zero, double3.zero),
+            new RBState(new double3(0.58, 0.58, 0.0), staticPoint.th, double3.zero, double3.zero),
             staticPoint // Back to center
         };
-        
-        Xref_linear = InitializeLinearTrajectory(waypoints, 3.0, 1.0, 100.0);
+        Xref_linear = InitializeLinearTrajectory(waypoints, 2.0, 1.0, 100.0);
 
         // Default to stable
         SetMode(TrajectoryMode.STABLE_STANDING);
