@@ -46,6 +46,7 @@ public class StarTest_Main : MonoBehaviour
         LEFT, 
         RIGHT 
     }
+    [Header("Star Test")]
     public volatile STAR_STATE currState = STAR_STATE.OFF;
     #endregion
 
