@@ -166,14 +166,12 @@ public class CableTensionPlanner
     public Wrench CalculateResultantWrench(double4x4 eeInRobotFrame, double[] solver_tensions)
     {
         int numCables = robot.NumCables;
-        double3 resultantForce = double3(0, 0, 0);
-        double3 resultantTorque = double3(0, 0, 0);
+        double3 resultantForce = new double3(0);
+        double3 resultantTorque = new double3(0);
 
         // Iterate over each cable to sum up forces and torques
         for (int i = 0; i < numCables; i++)
         {
-            double tension = solver_tensions[i];
-
             // 1. Transform attachment point to robot frame
             double3 attachLocal = robot.LocalAttachmentPoints[i];
             double3 attachRobotFrame = TransformPoint(eeInRobotFrame, attachLocal);
@@ -183,7 +181,7 @@ public class CableTensionPlanner
             double3 u_i = normalize(cableVec);
 
             // 3. Force Contribution: F_i = T_i * u_i
-            double3 force_i = u_i * tension;
+            double3 force_i = u_i * solver_tensions[i];
             resultantForce += force_i;
 
             // 4. Calculate torque arm: r = attachment - BeltCenter (in global frame)

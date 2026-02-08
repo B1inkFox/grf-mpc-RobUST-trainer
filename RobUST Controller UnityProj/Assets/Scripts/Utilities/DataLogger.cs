@@ -15,7 +15,7 @@ public class DataLogger
     // A Blittable-ish struct to keep memory contiguous
     public struct DataFrame
     {
-        public long Timestamp;
+        public double Timestamp;
         public double4x4 ComPoseRF;
         public double4x4 EEPoseRF;
         public ForcePlateData FP1;
@@ -59,7 +59,7 @@ public class DataLogger
         // Direct array access by reference to avoid structure copy
         ref DataFrame frame = ref _buffer[_cursor];
         
-        frame.Timestamp = timestamp;
+        frame.Timestamp = (double)timestamp / (double)System.Diagnostics.Stopwatch.Frequency;
         frame.ComPoseRF = comPose;
         frame.EEPoseRF = eePose;
         frame.FP1 = fp1;
