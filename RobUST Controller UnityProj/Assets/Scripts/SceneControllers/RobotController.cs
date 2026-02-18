@@ -77,6 +77,10 @@ public class RobotController : MonoBehaviour
     private volatile bool isRunning = false;
     private volatile bool isTrajectoryActive = false;
 
+    // TEMP Perturbation Test
+    private volatile bool testPulseRequested = false;
+    private volatile bool testPulseActive = false;
+
     private void Start()
     {
         using (System.Diagnostics.Process p = System.Diagnostics.Process.GetCurrentProcess())
@@ -160,7 +164,8 @@ public class RobotController : MonoBehaviour
         if (Keyboard.current.tKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
         if (Keyboard.current.mKey.wasPressedThisFrame) { if (isForcePlateEnabled) currentControlMode = CONTROL_MODE.MPC; }
         if (Keyboard.current.iKey.wasPressedThisFrame) { if (robotDescription.NumCables == 8) currentControlMode = CONTROL_MODE.IMPEDANCE; }
-        
+        // Press 'P' to trigger a short tension pulse on motor 13 (hardcoded test)
+        if (Keyboard.current.pKey.wasPressedThisFrame) { testPulseRequested = true; }
     }
 
     /// <summary>
@@ -175,6 +180,7 @@ public class RobotController : MonoBehaviour
 
         Span<double> motor_tension_command = stackalloc double[14];
         double[] solver_tensions = new double[robotDescription.NumCables];
+        
         double4x4 framePose = ToDouble4x4(robot_frame_tracker.PoseMatrix);
         double4x4 frameInv = math.fastinverse(framePose);
         SensorFilter filter_10Hz = new SensorFilter(ctrl_freq, 10.0);
@@ -186,11 +192,20 @@ public class RobotController : MonoBehaviour
         long intervalTicks = (long)(system_frequency / ctrl_freq);
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
         long lastLoopTick = System.Diagnostics.Stopwatch.GetTimestamp();
+        long testPulseEndTick = 0;
         while (isRunning)
         {
             long loopStartTick = System.Diagnostics.Stopwatch.GetTimestamp();
             s_IntervalNs.Value = (long)((loopStartTick - lastLoopTick) * ticksToNs);
             lastLoopTick = loopStartTick;
+
+            // perturbation pulse logic
+            if (testPulseRequested)
+            {
+                testPulseRequested = false;
+                testPulseActive = true;
+                testPulseEndTick = loopStartTick + (long)(0.2 * system_frequency);
+            }
 
             trackerManager.GetEndEffectorTrackerData(out TrackerData rawEndEffectorData);
             trackerManager.GetCoMTrackerData(out TrackerData rawComData);
@@ -256,6 +271,13 @@ public class RobotController : MonoBehaviour
                     visualizer.PushGoalTrajectory(Xref_horizon.Slice(0, 1));
                     break;
             }
+
+            // perturbation logic
+            int motorIndex = 13;
+            long nowTick = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (testPulseActive && nowTick >= testPulseEndTick) testPulseActive = false;
+            double setTension = testPulseActive ? 100 : 10;
+            motor_tension_command[motorIndex] = setTension;
 
             if (isTrajectoryActive) trajectoryIndex++;
 
