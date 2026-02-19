@@ -36,10 +36,17 @@ public class MPCSolver : BaseController<double[]>
     private double3x3 E_Theta;          // E(Θ): angular velocity to euler rates
 
     // MPC weights (public setters for gain scheduling)
+    //public double3 Q_pos { get; set; } = new double3(50.0, 50.0, 100.0);
+    //public double3 Q_Theta { get; set; } = new double3(0.001, 0.001, 0.001);
+    //public double3 Q_vel { get; set; } = new double3(50.0, 50.0, 50.0);
+    //public double3 Q_omega { get; set; } = new double3(0.001, 0.001, 0.001);
+    
+    // best 4 cable weights
     public double3 Q_pos { get; set; } = new double3(500.0, 500.0, 100.0);
     public double3 Q_Theta { get; set; } = new double3(0.001, 0.001, 0.001);
     public double3 Q_vel { get; set; } = new double3(50.0, 50.0, 50.0);
     public double3 Q_omega { get; set; } = new double3(0.001, 0.001, 0.001);
+
     public  readonly double alpha = 0.001;  // control effort weight
     private readonly double3x3 I_body; // Inertia tensor in body frame [kg·m²]
     private double3x3 I_world_inv;
