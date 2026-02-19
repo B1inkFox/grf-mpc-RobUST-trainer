@@ -345,12 +345,12 @@ MonoBehaviour:
   visualizer: {fileID: 748268991}
   isLabviewControlEnabled: 1
   currentControlMode: 0
-  numCables: 8
-  chestAPDistance: 0.22
-  chestMLDistance: 0.28
-  userMass: 58
-  userShoulderWidth: 0.4
-  userHeight: 1.62
+  numCables: 4
+  chestAPDistance: 0.35
+  chestMLDistance: 0.26
+  userMass: 68.5
+  userShoulderWidth: 0.45
+  userHeight: 1.75
   isLogging: 0
   sessionName: Experiment
   TrajMode: 0
@@ -363,7 +363,7 @@ Transform:
   m_GameObject: {fileID: 748268981}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: -0}
+  m_LocalPosition: {x: -0.18, y: 0, z: -0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

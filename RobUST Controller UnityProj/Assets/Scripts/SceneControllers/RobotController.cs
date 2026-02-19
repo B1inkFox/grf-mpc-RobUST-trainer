@@ -164,7 +164,7 @@ public class RobotController : MonoBehaviour
         if (Keyboard.current.tKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
         if (Keyboard.current.mKey.wasPressedThisFrame) { if (isForcePlateEnabled) currentControlMode = CONTROL_MODE.MPC; }
         if (Keyboard.current.iKey.wasPressedThisFrame) { if (robotDescription.NumCables == 8) currentControlMode = CONTROL_MODE.IMPEDANCE; }
-        // Press 'P' to trigger a short tension pulse on motor 13 (hardcoded test)
+        // Press 'P' to trigger a short tension pulse on motor 12 (hardcoded test)
         if (Keyboard.current.pKey.wasPressedThisFrame) { testPulseRequested = true; }
     }
 
@@ -204,7 +204,7 @@ public class RobotController : MonoBehaviour
             {
                 testPulseRequested = false;
                 testPulseActive = true;
-                testPulseEndTick = loopStartTick + (long)(0.2 * system_frequency);
+                testPulseEndTick = loopStartTick + (long)(0.3 * system_frequency);
             }
 
             trackerManager.GetEndEffectorTrackerData(out TrackerData rawEndEffectorData);
@@ -273,10 +273,10 @@ public class RobotController : MonoBehaviour
             }
 
             // perturbation logic
-            int motorIndex = 13;
+            int motorIndex = 11;
             long nowTick = System.Diagnostics.Stopwatch.GetTimestamp();
             if (testPulseActive && nowTick >= testPulseEndTick) testPulseActive = false;
-            double setTension = testPulseActive ? 100 : 10;
+            double setTension = testPulseActive ? 150 : 10;
             motor_tension_command[motorIndex] = setTension;
 
             if (isTrajectoryActive) trajectoryIndex++;
