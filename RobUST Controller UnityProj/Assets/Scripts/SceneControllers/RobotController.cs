@@ -50,7 +50,18 @@ public class RobotController : MonoBehaviour
     [Tooltip("User height (feet to head) [m].")]
     public float userHeight = 1.5f;
 
+    [Header("Data Logging")]
+    [Tooltip("Check this to record data to RAM. It will be saved to disk on Stop.")]
+    public volatile bool isLogging = false;
+    [Tooltip("Name of the experiment session for the log file.")]
+    public string sessionName = "Experiment";
+
+    [Header("Trajectory Control")]
+    [Tooltip("Change this during runtime to switch trajectory modes.")]
+    public TrajectoryMode TrajMode = TrajectoryMode.STABLE_STANDING;
+
     private RobUSTDescription robotDescription;
+    private DataLogger dataLogger;
 
     // Controllers
     private MPCSolver mpcSolver;
@@ -58,11 +69,17 @@ public class RobotController : MonoBehaviour
     private CableTensionPlanner tensionPlanner;
     private TrajectoryPlanner trajectoryPlanner;
     private long trajectoryIndex = 0;
+    
 
     // Static frame reference captured only at startup to prevent drift
     private TrackerData robot_frame_tracker;
     private Thread controllerThread;
     private volatile bool isRunning = false;
+    private volatile bool isTrajectoryActive = false;
+
+    // TEMP Perturbation Test
+    private volatile bool testPulseRequested = false;
+    private volatile bool testPulseActive = false;
 
     private void Start()
     {
@@ -91,6 +108,12 @@ public class RobotController : MonoBehaviour
 
         // Initialize Modules
         tcpCommunicator.Initialize();
+        if (!visualizer.Initialize(robotDescription))
+        {
+            Debug.LogError("Failed to initialize RobotVisualizer.", this);
+            enabled = false;
+            return;
+        }
         if (!trackerManager.Initialize())
         {
             Debug.LogError("Failed to initialize TrackerManager.", this);
@@ -102,18 +125,13 @@ public class RobotController : MonoBehaviour
             Debug.LogWarning("Failed to initialize ForcePlateManager.", this);
             isForcePlateEnabled = false;
         }
-        if (!visualizer.Initialize(robotDescription))
-        {
-            Debug.LogError("Failed to initialize RobotVisualizer.", this);
-            enabled = false;
-            return;
-        }
-
+        
         if (isLabviewControlEnabled)
         {
             tcpCommunicator.ConnectToServer();
             tcpCommunicator.SetClosedLoopControl();
         }
+        dataLogger = new DataLogger(60, 100);
 
         System.Threading.Thread.Sleep(500); // allow tracker thread to go live
         trackerManager.GetFrameTrackerData(out robot_frame_tracker); // import Capture static frame at startup 
@@ -137,13 +155,17 @@ public class RobotController : MonoBehaviour
 
     private void Update()
     {
-        if (Keyboard.current == null) return;
+        if (trajectoryPlanner.CurrentMode != TrajMode)
+            trajectoryPlanner.SetMode(TrajMode);
 
-        if (Keyboard.current.oKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.OFF; trajectoryIndex = 0; }
+        if (Keyboard.current == null) return;
+        if (Keyboard.current.spaceKey.wasPressedThisFrame) { isTrajectoryActive = !isTrajectoryActive; }
+        if (Keyboard.current.oKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.OFF; trajectoryIndex = 0; isTrajectoryActive = false; }
         if (Keyboard.current.tKey.wasPressedThisFrame) { currentControlMode = CONTROL_MODE.TRANSPARENT; }
         if (Keyboard.current.mKey.wasPressedThisFrame) { if (isForcePlateEnabled) currentControlMode = CONTROL_MODE.MPC; }
         if (Keyboard.current.iKey.wasPressedThisFrame) { if (robotDescription.NumCables == 8) currentControlMode = CONTROL_MODE.IMPEDANCE; }
-        
+        // Press 'P' to trigger a short tension pulse on motor 12 (hardcoded test)
+        if (Keyboard.current.pKey.wasPressedThisFrame) { testPulseRequested = true; }
     }
 
     /// <summary>
@@ -154,11 +176,13 @@ public class RobotController : MonoBehaviour
     private void controlLoop()
     {
         double ctrl_freq = 100.0;
+        int mpcStride = (int)(mpcSolver.dt * ctrl_freq);
+
         Span<double> motor_tension_command = stackalloc double[14];
         double[] solver_tensions = new double[robotDescription.NumCables];
+        
         double4x4 framePose = ToDouble4x4(robot_frame_tracker.PoseMatrix);
         double4x4 frameInv = math.fastinverse(framePose);
-        
         SensorFilter filter_10Hz = new SensorFilter(ctrl_freq, 10.0);
         Span<RBState> Xref_horizon = stackalloc RBState[10];
         Span<RBState> mpc_results = stackalloc RBState[10];
@@ -168,11 +192,20 @@ public class RobotController : MonoBehaviour
         long intervalTicks = (long)(system_frequency / ctrl_freq);
         long nextTargetTime = System.Diagnostics.Stopwatch.GetTimestamp() + intervalTicks;
         long lastLoopTick = System.Diagnostics.Stopwatch.GetTimestamp();
+        long testPulseEndTick = 0;
         while (isRunning)
         {
             long loopStartTick = System.Diagnostics.Stopwatch.GetTimestamp();
             s_IntervalNs.Value = (long)((loopStartTick - lastLoopTick) * ticksToNs);
             lastLoopTick = loopStartTick;
+
+            // perturbation pulse logic
+            if (testPulseRequested)
+            {
+                testPulseRequested = false;
+                testPulseActive = true;
+                testPulseEndTick = loopStartTick + (long)(0.3 * system_frequency);
+            }
 
             trackerManager.GetEndEffectorTrackerData(out TrackerData rawEndEffectorData);
             trackerManager.GetCoMTrackerData(out TrackerData rawComData);
@@ -188,11 +221,15 @@ public class RobotController : MonoBehaviour
             ForcePlateData netFPData = new ForcePlateData(netForce, netCoP);
             
             filter_10Hz.Update(comPose_RF, eePose_RF, netFPData);
-            trajectoryPlanner.FillHorizon(trajectoryIndex, Xref_horizon);
+
+            int currentStride = (currentControlMode == CONTROL_MODE.MPC) ? mpcStride : 1;
+            trajectoryPlanner.FillHorizon(trajectoryIndex, Xref_horizon, currentStride);
+
             switch (currentControlMode)
             {
                 case CONTROL_MODE.OFF:
                     motor_tension_command.Clear();
+                    Array.Clear(solver_tensions, 0, solver_tensions.Length);
                     break;
                 case CONTROL_MODE.TRANSPARENT:
                     switch (robotDescription.NumCables)
@@ -209,7 +246,6 @@ public class RobotController : MonoBehaviour
                             break;
                     }
                     visualizer.PushGoalTrajectory(Xref_horizon.Slice(0, 1));
-                    trajectoryIndex++;
                     break;
                 case CONTROL_MODE.MPC:
                     ForcePlateData filteredFPData = new ForcePlateData(filter_10Hz.FilteredGRF, filter_10Hz.FilteredCoP);
@@ -223,8 +259,6 @@ public class RobotController : MonoBehaviour
                     mpcSolver.ComputeOptimalTrajectory(mpc_results);
                     visualizer.PushMpcTrajectory(mpc_results);
                     visualizer.PushGoalTrajectory(Xref_horizon);
-                    
-                    trajectoryIndex++;
                     break;
                 case CONTROL_MODE.IMPEDANCE:
                     // Moved kinematics logic to TrajectoryPlanner
@@ -235,12 +269,25 @@ public class RobotController : MonoBehaviour
                     solver_tensions = tensionPlanner.CalculateTensions(eePose_RF, goalWrench);
                     MapTensionsToMotors(solver_tensions, motor_tension_command);
                     visualizer.PushGoalTrajectory(Xref_horizon.Slice(0, 1));
-                    trajectoryIndex++;
                     break;
             }
 
+            // perturbation logic
+            int motorIndex = 11;
+            long nowTick = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (testPulseActive && nowTick >= testPulseEndTick) testPulseActive = false;
+            double setTension = testPulseActive ? 150 : 10;
+            motor_tension_command[motorIndex] = setTension;
+
+            if (isTrajectoryActive) trajectoryIndex++;
+
             tcpCommunicator.UpdateTensionSetpoint(motor_tension_command);
             visualizer.PushState(comPose_RF, eePose_RF, fp0, fp1);
+            if (isLogging)
+            {
+                Wrench goalWrench = tensionPlanner.CalculateResultantWrench(eePose_RF, solver_tensions);
+                dataLogger.Log(loopStartTick, comPose_RF, eePose_RF, fp0, fp1, goalWrench, Xref_horizon[0]);
+            }
 
             s_WorkloadNs.Value = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - loopStartTick) * ticksToNs);
             while (System.Diagnostics.Stopwatch.GetTimestamp() < nextTargetTime) { } // BURN wait
@@ -271,6 +318,8 @@ public class RobotController : MonoBehaviour
         // TrackerManager handles its own shutdown via its OnDestroy method.
         isRunning = false;
         tcpCommunicator?.Disconnect();
+        if (dataLogger != null && dataLogger.FrameCount > 0)
+            dataLogger.WriteToDisk(sessionName);
     }
 
 

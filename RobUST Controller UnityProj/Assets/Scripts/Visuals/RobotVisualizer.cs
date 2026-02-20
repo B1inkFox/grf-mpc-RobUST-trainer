@@ -12,11 +12,15 @@ public class RobotVisualizer : MonoBehaviour
     public Transform comTrackerVisual;
     public Transform endEffectorVisual;
     public Transform frameTrackerVisual;
-
-    [Header("Camera Settings")]
-    public Camera visualizationCamera;
-    public Vector3 camPos_RobotFrame = new Vector3(3.0f, 1.2f, .7f);
-
+    
+    [Header("Multi-Camera Setup")]
+    [Tooltip("Top-Down view (Top Left). Manually placed.")]
+    public Camera topViewCamera;
+    [Tooltip("Side view (Top Right). Manually placed.")]
+    public Camera sideViewCamera;
+    [Tooltip("Perspective view (Bottom Half). This one will track the robot center.")]
+    public Camera perspectiveCamera;
+    
     private float metersPerNewton = 0.002f;
     private float forceCapsuleRadius = 0.01f;
 
@@ -56,16 +60,26 @@ public class RobotVisualizer : MonoBehaviour
     public bool Initialize(RobUSTDescription robotDescription)
     {
         // Validation
-        if (comTrackerVisual == null || endEffectorVisual == null || frameTrackerVisual == null || visualizationCamera == null)
+        if (comTrackerVisual == null ||
+            endEffectorVisual == null ||
+            frameTrackerVisual == null || 
+            perspectiveCamera == null ||
+            topViewCamera == null ||
+            sideViewCamera == null)
         {
-            Debug.LogError("RobotVisualizer: Please assign all Tracker Visuals.");
+            Debug.LogError("RobotVisualizer: Please assign all modules.");
             return false;
         }
         robot = robotDescription;
         StripPhysics(comTrackerVisual);
         StripPhysics(endEffectorVisual);
         StripPhysics(frameTrackerVisual);
-        StripPhysics(visualizationCamera.transform);
+        StripPhysics(perspectiveCamera.transform);
+        StripPhysics(topViewCamera.transform);
+        StripPhysics(sideViewCamera.transform);
+        Destroy(topViewCamera.GetComponent<AudioListener>());
+        Destroy(sideViewCamera.GetComponent<AudioListener>());
+        Destroy(perspectiveCamera.GetComponent<AudioListener>());
 
         var root = new GameObject("Generated_Visuals").transform;
         root.SetParent(this.transform);
@@ -78,10 +92,48 @@ public class RobotVisualizer : MonoBehaviour
         GenerateMpcTrajectoryVisuals(root);
         GenerateInertiaEllipsoid();
 
-        UpdateCamera();
+        ConfigureSplitScreen();
 
         isInitialized = true;
         return true;
+    }
+
+    private void ConfigureSplitScreen()
+    {
+        // Screen Layout:
+        // |              |              |
+        // |   Top View   |   Side View  |
+        // |  (Top Left)  |  (Top Right) |
+        // |______________|______________|
+        // |                             |
+        // |        Perspective          |
+        // |       (Bottom Half)         |
+        // |_____________________________|
+        float3 robust_center = new float3(0f, 0.7f, 0.2f);
+
+        if (topViewCamera != null)
+        {
+            topViewCamera.rect = new Rect(0.0f, 0.5f, 0.5f, 0.5f);
+            topViewCamera.transform.position = (Vector3)RobotToUnityPos(robust_center + new float3(0f, 0f, 1.5f));
+            topViewCamera.transform.LookAt((Vector3)RobotToUnityPos(robust_center), -Vector3.right);
+        }
+
+        if (sideViewCamera != null)
+        {
+            sideViewCamera.rect = new Rect(0.5f, 0.5f, 0.5f, 0.5f);
+            sideViewCamera.transform.position = (Vector3)RobotToUnityPos(robust_center + new float3(0f, 1.5f, 0f));
+            sideViewCamera.transform.LookAt((Vector3)RobotToUnityPos(robust_center));
+        }
+
+        // Perspective camera covers total bottom width (1.0f) and half height (0.5f)
+        // Starting at X=0, Y=0
+        if (perspectiveCamera != null)
+        {
+            perspectiveCamera.rect = new Rect(0.0f, 0.0f, 1.0f, 0.5f);
+            float3 camPos = new float3(2.5f, 1.2f, .7f);
+            perspectiveCamera.transform.position = (Vector3)RobotToUnityPos(camPos);
+            perspectiveCamera.transform.LookAt((Vector3)RobotToUnityPos(robust_center));
+        }
     }
 
     /// <summary>
@@ -436,18 +488,8 @@ public class RobotVisualizer : MonoBehaviour
         }
     }
 
-    private void UpdateCamera()
-    {
-        float3 camPos = new float3(camPos_RobotFrame.x, camPos_RobotFrame.y, camPos_RobotFrame.z);
-        visualizationCamera.transform.position = (Vector3)RobotToUnityPos(camPos);
-        float3 robust_center = new float3(0f, 0.7f, 0.2f);
-        visualizationCamera.transform.LookAt((Vector3)RobotToUnityPos(robust_center));
-    }
-
     private void StripPhysics(Transform root)
     {
-        if (root == null) return;
-
         // Remove Rigidbodies (Start from root, usually only one RB exists)
         foreach (var rb in root.GetComponentsInChildren<Rigidbody>())
         {

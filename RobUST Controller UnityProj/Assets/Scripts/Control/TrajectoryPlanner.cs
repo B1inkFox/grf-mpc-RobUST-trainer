@@ -1,44 +1,153 @@
 using Unity.Mathematics;
 using System;
+using System.Collections.Generic;
+
+public enum TrajectoryMode
+{
+    STABLE_STANDING,
+    LINEAR_PATH
+}
 
 public class TrajectoryPlanner
 {
-    private RBState[] Xref_global;
+    // We can keep different pre-calculated buffers for different modes
+    private RBState[] Xref_stable;
+    private RBState[] Xref_linear;
     
+    // Pointer to the currently active trajectory
+    private RBState[] curr_Xref;
+    private TrajectoryMode currentMode;
+
+    public TrajectoryMode CurrentMode => currentMode;
+
     public TrajectoryPlanner()
     {
-        // Initialize Global Reference Trajectory
-        Xref_global = new RBState[2000]; // 20 seconds buffer
-        // stable standing
+
+        // 1. Initialize Stable Standing (Permanent Buffer)
+        Xref_stable = new RBState[1]; // fill horizon handles 
         RBState staticPoint = new RBState(
-            new double3(0.2, 0.75, -0.1), 
-            new double3(0, 0, math.PI/2), 
+            new double3(0.2, 0.8, -0.2), 
+            new double3(0, 0, -math.PI/2), 
             new double3(0, 0, 0), 
             new double3(0, 0, 0)
         );
-        for (int i = 0; i < Xref_global.Length; i++) Xref_global[i] = staticPoint;
+        for (int i = 0; i < Xref_stable.Length; i++) Xref_stable[i] = staticPoint;
+
+        // 2. Initialize a default Linear Path (e.g., swaying)
+        // Define waypoints relative to the static point
+        Span<RBState> waypoints = stackalloc RBState[]
+        {
+            staticPoint,
+            staticPoint, // Start at center
+            new RBState(new double3(0.58, 0.58, -0.2), staticPoint.th, double3.zero, double3.zero),
+            new RBState(new double3(0.2, 0.8, -0.2), staticPoint.th, double3.zero, double3.zero),
+            new RBState(new double3(0.2, 0.8, -0.2), staticPoint.th, double3.zero, double3.zero),
+            new RBState(new double3(0.2, 0.8, -0.2), staticPoint.th, double3.zero, double3.zero),
+            new RBState(new double3(0.58, 0.58, -0.2), staticPoint.th, double3.zero, double3.zero),
+            staticPoint // Back to center
+        };
+        Xref_linear = InitializeLinearTrajectory(waypoints, 2.0, 1.0, 100.0);
+
+        // Default to stable
+        SetMode(TrajectoryMode.STABLE_STANDING);
+    }
+
+    public void SetMode(TrajectoryMode mode)
+    {
+        currentMode = mode;
+        switch (mode)
+        {
+            case TrajectoryMode.STABLE_STANDING:
+                curr_Xref = Xref_stable;
+                break;
+            case TrajectoryMode.LINEAR_PATH:
+                curr_Xref = Xref_linear;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Generates a trajectory array by linearly interpolating between waypoints.
+    /// </summary>
+    private RBState[] InitializeLinearTrajectory(ReadOnlySpan<RBState> waypoints, double moveDuration, double pauseDuration, double frequency)
+    {
+        int moveSteps = (int)(moveDuration * frequency);
+        int pauseSteps = (int)(pauseDuration * frequency);
+        
+        // Calculate total size
+        int totalSegments = waypoints.Length - 1;
+        if (totalSegments < 1) return new RBState[] { waypoints[0] };
+
+        int totalLength = totalSegments * (moveSteps + pauseSteps);
+        RBState[] trajectory = new RBState[totalLength];
+        
+        int currentIndex = 0;
+
+        for (int i = 0; i < totalSegments; i++)
+        {
+            RBState start = waypoints[i];
+            RBState end = waypoints[i+1];
+
+            // 1. Interpolate Move
+            for (int s = 0; s < moveSteps; s++)
+            {
+                double t = (double)s / moveSteps;
+                double3 p = math.lerp(start.p, end.p, t);
+                double3 th = math.lerp(start.th, end.th, t);
+                
+                // Simple constant velocity during move
+                double dt = 1.0 / frequency;
+                double3 v = (end.p - start.p) / moveDuration; 
+                double3 w = (end.th - start.th) / moveDuration; 
+
+                trajectory[currentIndex++] = new RBState(p, th, v, w);
+            }
+
+            // 2. Pause at waypoint
+            for (int p = 0; p < pauseSteps; p++)
+                trajectory[currentIndex++] = new RBState(end.p, end.th, double3.zero, double3.zero);
+        }
+        
+        return trajectory;
     }
 
     /// <summary>
     /// Safely fills the destination span with the lookahead trajectory.
+    /// Supports striding for solvers running at different time horizons.
     /// </summary>
-    public void FillHorizon(long trajectoryIndex, Span<RBState> destination)
+    public void FillHorizon(long trajectoryIndex, Span<RBState> destination, int stride = 1)
     {
-        int startIndex = (int)trajectoryIndex;
-        int sourceLen = Xref_global.Length;
+        int sourceLen = curr_Xref.Length;
         int destinationLen = destination.Length;
 
-        if (startIndex >= sourceLen)
+        // Optimization for standard 1:1 playback
+        if (stride == 1)
         {
-            destination.Fill(Xref_global[sourceLen - 1]);
-            return;
+            int startIndex = (int)trajectoryIndex;
+            if (startIndex >= sourceLen)
+            {
+                destination.Fill(curr_Xref[sourceLen - 1]);
+                return;
+            }
+
+            int copyCount = math.min(destinationLen, sourceLen - startIndex);
+            curr_Xref.AsSpan(startIndex, copyCount).CopyTo(destination);
+
+            if (copyCount < destinationLen)
+                destination.Slice(copyCount).Fill(curr_Xref[sourceLen - 1]);
         }
-
-        int copyCount = math.min(destinationLen, sourceLen - startIndex);
-        Xref_global.AsSpan(startIndex, copyCount).CopyTo(destination);
-
-        if (copyCount < destinationLen)
-            destination.Slice(copyCount).Fill(Xref_global[sourceLen - 1]);
+        else
+        {
+            // Strided access (slow path, but necessary for MPC horizons)
+            for (int i = 0; i < destinationLen; i++)
+            {
+                long lookupIndex = trajectoryIndex + (i * stride);
+                if (lookupIndex < sourceLen)
+                    destination[i] = curr_Xref[lookupIndex];
+                else
+                    destination[i] = curr_Xref[sourceLen - 1]; // Hold last point
+            }
+        }
     }
 
     /// <summary>
